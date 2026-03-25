@@ -1,70 +1,60 @@
-from ultralytics import YOLO
-from collections import defaultdict
-import cv2
-import numpy as np
 import asyncio
+import cv2
+from picamera2 import Picamera2            # type: ignore
+from ultralytics import YOLO
+from cam_movement import start_drone, right, forward, altitude, reset
+from tracking import cam, HybridTracker  # your new file
+import time
 
-from object_detection import cam
-from cam_movement import start_drone, forward, right, altitude, reset
-
-
-# from drone_movement import start_drone, forward, right, altitude
-# Load the YOLO26 model
-model = YOLO("yolo26n.pt")
-loc =[]
 err_min = 20
 
-    # Open the video file
-video_path = 0
-cap = cv2.VideoCapture(video_path)
-
-
 async def main():
+    model = YOLO("yolo26n.pt")
 
-    # Store the track history
-    track_history = defaultdict(lambda: [])
-    drone = await start_drone()
+    # Laptop cam video feed
+    # cap = cv2.VideoCapture(0)
+
+    # Picamera video feed
+    picam2 = Picamera2()
+    config = picam2.create_preview_configuration(
+        main={"size": (1280, 720), "format": "RGB888"}
+    )
+    picam2.configure(config)
+    picam2.start()
+    time.sleep(2)
     
 
+    ht = HybridTracker(detect_every=10, conf=0.05, classes=[67])
 
-    while cap.isOpened():
-        loc = cam(cap, model, track_history,  classes=[67], conf=0.05)
-        # print(loc)
+    # drone = await start_drone()
 
-        # Break the loop if 'q' is pressed
+    while True:
+        frame = picam2.capture_array()
+        bbox, err_px, frame = cam(frame, model, ht)
+
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
 
-        if not loc:
+        if err_px is None:
+            #await reset(drone)
             continue
-        
-        target = max(loc, key=lambda d: d["confidence"])
-        ex_px, ey_px = target["err_px"]
+
+        ex_px, ey_px = err_px
 
         if abs(ex_px) > err_min:
-            if ex_px > 0:
-                print('Move Left')
-                await right(-1, drone)
-            else:
-                print('Move Right')
-                await right(1, drone)
-
-        if abs(ey_px) >err_min:
-            if ey_px < 0:
-                print('Move Forward')
-                await forward(1, drone)
-            else:
-                print('Move Backward')
-                await forward(-1, drone)
-        
-        if abs(ex_px) < err_min and abs(ey_px) < err_min:
-            print('decend')
-            await altitude(-1, drone)
+            print("left" if ex_px<0 else "right")
+            # await right(-1 if ex_px > 0 else 1, drone)
+        elif abs(ey_px) > err_min:
+            print("forward" if ey_px<0 else "backward")
+            # await forward(1 if ey_px < 0 else -1, drone)
+        elif abs(ey_px) < err_min and abs(ex_px) < err_min:
+            print("Centered")
+            
+            # await altitude(-1, drone)
 
 
-
-
-        
+    picam2.stop()
+    cv2.destroyAllWindows()
 
 if __name__ == "__main__":
     asyncio.run(main())
