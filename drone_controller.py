@@ -92,6 +92,15 @@ class DroneController:
         """Stop all movement"""
         await self.set_velocity(0.0, 0.0, 0.0, 0.0)
 
+    async def get_position_ned(self):
+        """Get current NED position (single reading)"""
+        async for pos_vel in self.drone.telemetry.position_velocity_ned():
+            return (
+                pos_vel.position.north_m,
+                pos_vel.position.east_m,
+                pos_vel.position.down_m,
+            )
+
     async def land(self):
         """Land the drone"""
         logger.info("-- Landing")
@@ -224,44 +233,115 @@ async def test_velocity_commands():
     await asyncio.sleep(5)
 
 
-async def test_pid_centering():
-    """Test 3: Simulate pixel errors and test PID centering"""
+async def test_pid_position():
+    """Test 3: Real PID tuning using telemetry feedback.
+
+    Flies the drone to target offsets and measures how well the PID
+    converges — logs overshoot, oscillation, and settling time.
+    """
     controller = DroneController()
     await controller.connect()
 
-    logger.info("\n=== TEST 3: PID CENTERING (SIMULATED) ===\n")
+    logger.info("\n=== TEST 3: PID POSITION CONTROL (REAL TELEMETRY) ===\n")
 
     await controller.arm_and_takeoff(altitude=5)
     await controller.start_offboard()
 
-    # Simulate object offset from center
-    simulated_errors = [
-        (100.0, -50.0),  # Object right and above
-        (80.0, -40.0),
-        (60.0, -30.0),
-        (40.0, -20.0),
-        (20.0, -10.0),
-        (10.0, -5.0),
-        (5.0, -2.0),
-        (0.0, 0.0),  # Centered
+    # Position PID controllers (meters → m/s)
+    pid_north = PIDController(kp=0.5, ki=0.01, kd=0.3, max_output=1.0, min_output=-1.0)
+    pid_east = PIDController(kp=0.5, ki=0.01, kd=0.3, max_output=1.0, min_output=-1.0)
+
+    # Get starting position
+    start_n, start_e, start_d = await controller.get_position_ned()
+    logger.info(f"-- Start position: N={start_n:.2f} E={start_e:.2f} D={start_d:.2f}")
+
+    # Waypoints to test PID response (offset from start in meters)
+    waypoints = [
+        (5.0, 0.0, "5m North"),
+        (5.0, 5.0, "5m North + 5m East"),
+        (0.0, 0.0, "Return to start"),
     ]
 
-    for ex, ey in simulated_errors:
-        forward, right, down = controller.get_velocity_from_errors(ex, ey)
-        logger.info(
-            f"Error: ({ex:6.1f}px, {ey:6.1f}px) → Velocity: (F:{forward:6.3f}, R:{right:6.3f}, D:{down:6.3f} m/s)")
+    settle_threshold = 0.3  # meters — "close enough"
+    control_hz = 10
+    dt = 1.0 / control_hz
 
-        # Send command
-        await controller.set_velocity(forward, right, down)
-        await asyncio.sleep(0.5)
+    for target_n_offset, target_e_offset, label in waypoints:
+        target_n = start_n + target_n_offset
+        target_e = start_e + target_e_offset
 
-    # Hover
-    logger.info("-- Holding position...")
-    for i in range(20):
-        await controller.hover()
-        await asyncio.sleep(0.1)
+        logger.info(f"\n-- Flying to: {label} (N={target_n:.1f}, E={target_e:.1f})")
 
-    logger.info("-- Test complete, landing...")
+        pid_north.reset()
+        pid_east.reset()
+
+        settled_count = 0
+        max_iterations = 200  # 20 seconds
+        peak_error = 0.0
+        settled_at = None
+
+        for i in range(max_iterations):
+            # Read real position
+            cur_n, cur_e, cur_d = await controller.get_position_ned()
+
+            # Compute errors
+            err_n = target_n - cur_n
+            err_e = target_e - cur_e
+            total_error = math.sqrt(err_n ** 2 + err_e ** 2)
+
+            # Track peak error for overshoot detection
+            if i > 0:
+                peak_error = max(peak_error, total_error)
+
+            # PID outputs
+            vel_forward = pid_north.update(err_n)
+            vel_right = pid_east.update(err_e)
+
+            await controller.set_velocity(forward=vel_forward, right=vel_right)
+
+            # Log every 5 iterations (0.5s)
+            if i % 5 == 0:
+                logger.info(
+                    f"  [{i * dt:5.1f}s] pos=({cur_n:6.2f}, {cur_e:6.2f}) "
+                    f"err=({err_n:+6.2f}, {err_e:+6.2f}) "
+                    f"dist={total_error:5.2f}m "
+                    f"vel=({vel_forward:+5.2f}, {vel_right:+5.2f})"
+                )
+
+            # Check if settled
+            if total_error < settle_threshold:
+                settled_count += 1
+                if settled_count >= 10 and settled_at is None:
+                    settled_at = i * dt
+                    logger.info(f"  >> SETTLED at {settled_at:.1f}s (error={total_error:.3f}m)")
+            else:
+                settled_count = 0
+
+            # Stop early if settled for 2 seconds
+            if settled_count >= 20:
+                break
+
+            await asyncio.sleep(dt)
+
+        # Report results for this waypoint
+        final_n, final_e, _ = await controller.get_position_ned()
+        final_err = math.sqrt((target_n - final_n) ** 2 + (target_e - final_e) ** 2)
+
+        logger.info(f"\n  --- Results for '{label}' ---")
+        logger.info(f"  Final error:   {final_err:.3f}m")
+        logger.info(f"  Peak error:    {peak_error:.3f}m")
+        if settled_at:
+            logger.info(f"  Settling time: {settled_at:.1f}s")
+        else:
+            logger.info(f"  Settling time: DID NOT SETTLE (threshold={settle_threshold}m)")
+        logger.info(f"  PID gains:     kp={pid_north.kp} ki={pid_north.ki} kd={pid_north.kd}")
+
+        # Brief hover between waypoints
+        for _ in range(20):
+            await controller.hover()
+            await asyncio.sleep(0.1)
+
+    logger.info("\n-- Test complete, landing...")
     await controller.land()
     await asyncio.sleep(5)
 
@@ -274,14 +354,13 @@ async def main():
     print("\nAvailable tests:")
     print("  1. Takeoff and hover")
     print("  2. Velocity commands (forward, right)")
-    print("  3. PID centering (simulated pixel errors)")
-    print("\nRunning Test 1 (safest)...\n")
+    print("  3. PID position control (real telemetry)")
+    print("\nRunning all tests...\n")
 
     try:
         await test_offboard_hover()
-        # Uncomment below to run other tests
-        # await test_velocity_commands()
-        # await test_pid_centering()
+        await test_velocity_commands()
+        await test_pid_position()
     except Exception as e:
         logger.error(f"Error: {e}")
 
