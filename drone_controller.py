@@ -5,7 +5,7 @@ import logging
 import math
 
 from mavsdk import System
-from mavsdk.offboard import OffboardError, VelocityBodyYawspeed
+from mavsdk.offboard import OffboardError, VelocityBodyYawspeed, VelocityNedYaw
 
 from pid_controller import PIDController
 
@@ -86,6 +86,12 @@ class DroneController:
         """
         await self.drone.offboard.set_velocity_body(
             VelocityBodyYawspeed(forward, right, down, yaw_rate)
+        )
+
+    async def set_velocity_ned(self, north=0.0, east=0.0, down=0.0, yaw_deg=0.0):
+        """Send NED velocity command (world frame)"""
+        await self.drone.offboard.set_velocity_ned(
+            VelocityNedYaw(north, east, down, yaw_deg)
         )
 
     async def hover(self):
@@ -288,11 +294,11 @@ async def test_pid_position(controller):
             if i > 0:
                 peak_error = max(peak_error, total_error)
 
-            # PID outputs
-            vel_forward = pid_north.update(err_n)
-            vel_right = pid_east.update(err_e)
+            # PID outputs (NED frame — no heading dependency)
+            vel_north = pid_north.update(err_n)
+            vel_east = pid_east.update(err_e)
 
-            await controller.set_velocity(forward=vel_forward, right=vel_right)
+            await controller.set_velocity_ned(north=vel_north, east=vel_east)
 
             # Log every 5 iterations (0.5s)
             if i % 5 == 0:
@@ -300,7 +306,7 @@ async def test_pid_position(controller):
                     f"  [{i * dt:5.1f}s] pos=({cur_n:6.2f}, {cur_e:6.2f}) "
                     f"err=({err_n:+6.2f}, {err_e:+6.2f}) "
                     f"dist={total_error:5.2f}m "
-                    f"vel=({vel_forward:+5.2f}, {vel_right:+5.2f})"
+                    f"vel=({vel_north:+5.2f}, {vel_east:+5.2f})"
                 )
 
             # Check if settled
