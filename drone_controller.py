@@ -174,11 +174,8 @@ class DroneController:
         return centered
 
 
-async def test_offboard_hover():
+async def test_offboard_hover(controller):
     """Test 1: Take off and hover in place"""
-    controller = DroneController()
-    await controller.connect()
-
     logger.info("\n=== TEST 1: TAKEOFF AND HOVER ===\n")
 
     await controller.arm_and_takeoff(altitude=5)
@@ -191,14 +188,11 @@ async def test_offboard_hover():
 
     logger.info("-- Test complete, landing...")
     await controller.land()
-    await asyncio.sleep(5)
+    await asyncio.sleep(10)
 
 
-async def test_velocity_commands():
+async def test_velocity_commands(controller):
     """Test 2: Simple velocity commands"""
-    controller = DroneController()
-    await controller.connect()
-
     logger.info("\n=== TEST 2: VELOCITY COMMANDS ===\n")
 
     await controller.arm_and_takeoff(altitude=5)
@@ -230,18 +224,15 @@ async def test_velocity_commands():
 
     logger.info("-- Test complete, landing...")
     await controller.land()
-    await asyncio.sleep(5)
+    await asyncio.sleep(10)
 
 
-async def test_pid_position():
+async def test_pid_position(controller):
     """Test 3: Real PID tuning using telemetry feedback.
 
     Flies the drone to target offsets and measures how well the PID
     converges — logs overshoot, oscillation, and settling time.
     """
-    controller = DroneController()
-    await controller.connect()
-
     logger.info("\n=== TEST 3: PID POSITION CONTROL (REAL TELEMETRY) ===\n")
 
     await controller.arm_and_takeoff(altitude=5)
@@ -357,10 +348,13 @@ async def main():
     print("  3. PID position control (real telemetry)")
     print("\nRunning all tests...\n")
 
+    controller = DroneController()
+    await controller.connect()
+
     try:
-        await test_offboard_hover()
-        await test_velocity_commands()
-        await test_pid_position()
+        await test_offboard_hover(controller)
+        await test_velocity_commands(controller)
+        await test_pid_position(controller)
     except Exception as e:
         logger.error(f"Error: {e}")
 
