@@ -100,8 +100,13 @@ class DroneController:
     async def ensure_airborne(self, altitude=5.0):
         """Re-arm and takeoff if the drone has landed"""
         if not await self.is_in_air():
-            logger.info("-- Drone has landed, re-arming and taking off...")
-            await asyncio.sleep(3)  # Wait for disarm to complete
+            logger.info("-- Drone has landed, waiting for disarm...")
+            # Wait until drone is fully disarmed
+            async for is_armed in self.drone.telemetry.armed():
+                if not is_armed:
+                    logger.info("-- Drone disarmed, ready to re-arm.")
+                    break
+            await asyncio.sleep(5)  # Extra settle time for PX4
             await self.arm_and_takeoff(altitude)
             await self.start_offboard()
 
