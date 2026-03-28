@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import asyncio
-from mavsdk import System                                               # type: ignore
-from mavsdk.offboard import OffboardError, VelocityBodyYawspeed         # type: ignore
+from mavsdk import System  # type: ignore
+from mavsdk.offboard import OffboardError, VelocityBodyYawspeed  # type: ignore
 
 
 async def start_drone():
@@ -31,7 +31,7 @@ async def start_drone():
     await asyncio.sleep(5)
 
     print("-- Setting initial setpoint")
-    await drone.offboard.set_velocity_body(VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0))  
+    await drone.offboard.set_velocity_body(VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0))
 
     print("-- Starting offboard")
     try:
@@ -45,18 +45,21 @@ async def start_drone():
         print("-- Disarming")
         await drone.action.disarm()
 
+
 # Move forward/backward
 async def forward(speed, drone):
-    
     await drone.offboard.set_velocity_body(VelocityBodyYawspeed(speed, 0.0, 0.0, 0.0))
+
 
 # Move right/left
 async def right(speed, drone):
-    await drone.offboard.set_velocity_body(VelocityBodyYawspeed( 0.0, speed, 0.0, 0.0))
+    await drone.offboard.set_velocity_body(VelocityBodyYawspeed(0.0, speed, 0.0, 0.0))
+
 
 # Drone altitude
 async def altitude(alt, drone):
-    await drone.offboard.set_velocity_body(VelocityBodyYawspeed( 0.0, 0.0, alt, 0.0))
+    await drone.offboard.set_velocity_body(VelocityBodyYawspeed(0.0, 0.0, alt, 0.0))
+
 
 async def reset(drone):
-    await drone.offboard.set_velocity_body(VelocityBodyYawspeed( 0.0, 0.0, 0.0, 0.0))
+    await drone.offboard.set_velocity_body(VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0))

@@ -51,19 +51,13 @@ def cam(frame, model, ht: HybridTracker):
     # Try updating the existing tracker before running a full YOLO detection
     tracked_ok = False
     if ht.tracker is not None:
-        try:
-            tracked_ok, bbox = ht.tracker.update(frame)
+        tracked_ok, bbox = ht.tracker.update(frame)
 
-            if tracked_ok and bbox is not None and len(bbox) == 4:
-                # Save updated tracker bounding box as floats: (x,y,w,h)
-                ht.bbox = tuple(map(float, bbox))
-            else:
-                # Tracking failed, so the tracker state is cleared
-                ht.tracker = None
-                ht.bbox = None
-        except Exception as e:
-            # Tracker crashed, reset it
-            print(f"Tracker error: {e}")
+        if tracked_ok:
+            # Save updated tracker bounding box as floats: (x,y,w,h)
+            ht.bbox = tuple(map(float, bbox))
+        else:
+            # Tracking failed, so the tracker state is cleared
             ht.tracker = None
             ht.bbox = None
 
@@ -94,11 +88,7 @@ def cam(frame, model, ht: HybridTracker):
         # Convert best detection from corner format to tracker format
         if best is not None:
             x1, y1, x2, y2 = best
-            # Keep as float for tracker compatibility
-            x = float(x1)
-            y = float(y1)
-            w = float(x2 - x1)
-            h = float(y2 - y1)
+            x, y, w, h = int(x1), int(y1), int(x2 - x1), int(y2 - y1)
 
             # Only accept valid boxes with positive width and height and
             # initialize the tracker using the detected object
@@ -128,8 +118,8 @@ def cam(frame, model, ht: HybridTracker):
         err_px = (cx - W / 2.0, cy - H / 2.0)
 
         # visualize
-        x_int, y_int, w_int, h_int = int(x), int(y), int(w), int(h)
-        cv2.rectangle(frame, (x_int, y_int), (x_int + w_int, y_int + h_int), (0, 255, 0), 2)
+        x, y, w, h = map(int, bbox)
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
     cv2.imshow("Hybrid Track", frame)
     return bbox, err_px, frame
