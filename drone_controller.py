@@ -175,28 +175,20 @@ class DroneController:
 
 
 async def test_offboard_hover(controller):
-    """Test 1: Take off and hover in place"""
-    logger.info("\n=== TEST 1: TAKEOFF AND HOVER ===\n")
-
-    await controller.arm_and_takeoff(altitude=5)
-    await controller.start_offboard()
+    """Test 1: Hover in place"""
+    logger.info("\n=== TEST 1: HOVER IN PLACE ===\n")
 
     logger.info("-- Hovering for 10 seconds...")
     for i in range(100):  # 100 * 0.1s = 10s
         await controller.hover()
         await asyncio.sleep(0.1)
 
-    logger.info("-- Test complete, landing...")
-    await controller.land()
-    await asyncio.sleep(10)
+    logger.info("-- Test 1 complete.")
 
 
 async def test_velocity_commands(controller):
     """Test 2: Simple velocity commands"""
     logger.info("\n=== TEST 2: VELOCITY COMMANDS ===\n")
-
-    await controller.arm_and_takeoff(altitude=5)
-    await controller.start_offboard()
 
     # Move forward
     logger.info("-- Moving forward for 5 seconds...")
@@ -222,9 +214,7 @@ async def test_velocity_commands(controller):
         await controller.hover()
         await asyncio.sleep(0.1)
 
-    logger.info("-- Test complete, landing...")
-    await controller.land()
-    await asyncio.sleep(10)
+    logger.info("-- Test 2 complete.")
 
 
 async def test_pid_position(controller):
@@ -352,11 +342,19 @@ async def main():
     await controller.connect()
 
     try:
+        await controller.arm_and_takeoff(altitude=5)
+        await controller.start_offboard()
+
         await test_offboard_hover(controller)
         await test_velocity_commands(controller)
         await test_pid_position(controller)
+
+        logger.info("\n-- All tests complete, landing...")
+        await controller.land()
+        await asyncio.sleep(10)
     except Exception as e:
         logger.error(f"Error: {e}")
+        await controller.land()
 
 
 if __name__ == "__main__":
