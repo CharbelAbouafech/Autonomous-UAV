@@ -39,6 +39,7 @@ class DroneController:
         # Safety state
         self._failsafe_triggered = False
         self._battery_critical = False
+        self._landing_intentional = False
         self._monitor_tasks = []
 
     async def connect(self, system_address="udpin://0.0.0.0:14540"):
@@ -150,7 +151,7 @@ class DroneController:
         try:
             async for mode in self.drone.telemetry.flight_mode():
                 if mode in (FlightMode.RETURN_TO_LAUNCH, FlightMode.LAND):
-                    if not self._failsafe_triggered:
+                    if not self._failsafe_triggered and not self._landing_intentional:
                         logger.warning(f"!! PX4 FAILSAFE: flight mode changed to {mode}")
                         self._failsafe_triggered = True
         except asyncio.CancelledError:
@@ -270,6 +271,7 @@ class DroneController:
     async def land(self):
         """Land the drone"""
         logger.info("-- Landing")
+        self._landing_intentional = True
         await self.drone.action.land()
 
     # ===== VISION-BASED CONTROL =====
