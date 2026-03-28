@@ -92,6 +92,19 @@ class DroneController:
         """Stop all movement"""
         await self.set_velocity(0.0, 0.0, 0.0, 0.0)
 
+    async def is_in_air(self):
+        """Check if drone is currently flying"""
+        async for in_air in self.drone.telemetry.in_air():
+            return in_air
+
+    async def ensure_airborne(self, altitude=5.0):
+        """Re-arm and takeoff if the drone has landed"""
+        if not await self.is_in_air():
+            logger.info("-- Drone has landed, re-arming and taking off...")
+            await asyncio.sleep(3)  # Wait for disarm to complete
+            await self.arm_and_takeoff(altitude)
+            await self.start_offboard()
+
     async def get_position_ned(self):
         """Get current NED position (single reading)"""
         async for pos_vel in self.drone.telemetry.position_velocity_ned():
@@ -190,6 +203,8 @@ async def test_velocity_commands(controller):
     """Test 2: Simple velocity commands"""
     logger.info("\n=== TEST 2: VELOCITY COMMANDS ===\n")
 
+    await controller.ensure_airborne()
+
     # Move forward
     logger.info("-- Moving forward for 5 seconds...")
     for i in range(50):
@@ -225,8 +240,7 @@ async def test_pid_position(controller):
     """
     logger.info("\n=== TEST 3: PID POSITION CONTROL (REAL TELEMETRY) ===\n")
 
-    await controller.arm_and_takeoff(altitude=5)
-    await controller.start_offboard()
+    await controller.ensure_airborne()
 
     # Position PID controllers (meters → m/s)
     pid_north = PIDController(kp=0.5, ki=0.01, kd=0.3, max_output=1.0, min_output=-1.0)
