@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Safety constants
-SAFE_ALTITUDE = 2.0          # meters — low altitude for real drone testing
+SAFE_ALTITUDE = 3.0          # meters — low altitude for real drone testing
 BATTERY_MIN_PERCENT = 30     # abort if below this
 BATTERY_WARN_PERCENT = 40    # warn if below this
 MAX_TEST_SPEED = 0.3         # m/s — reduced for real drone
@@ -194,8 +194,15 @@ class DroneController:
         logger.info(f"-- Taking off to {altitude}m")
         await self.drone.action.takeoff()
 
-        # Wait for takeoff to complete (rough estimate)
-        await asyncio.sleep(altitude + 2)
+        # Wait until drone is actually in the air
+        logger.info("-- Waiting for drone to be airborne...")
+        async for in_air in self.drone.telemetry.in_air():
+            if in_air:
+                logger.info("-- Drone is airborne!")
+                break
+
+        # Give it time to reach target altitude and stabilize
+        await asyncio.sleep(5)
 
     async def start_offboard(self):
         """Start offboard mode and set initial velocity"""
