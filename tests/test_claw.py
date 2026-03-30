@@ -1,43 +1,31 @@
+#!/usr/bin/env python3
+"""Interactive test for the claw controller."""
 
-import RPi.GPIO as GPIO
-import time 
-import signal
-import atexit
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-atexit.register(GPIO.cleanup)
+from controllers.claw_controller import ClawController
 
-servopin = 21
-GPIO.setmode(GPIO.BCM)
-GPIO.setup(servopin, GPIO.OUT)
-p = GPIO.PWM(servopin, 50)
+claw = ClawController()
+claw.start()
 
-p.start(0)
-time.sleep(2)
+print("Servo Control Ready: 'o' to Open, 'c' to Close, 'q' to Quit")
 
+try:
+    while True:
+        cmd = input("Enter Command: ").strip().lower()
 
-open_angle = 19
-close_angle = 190.98
-
-def set_angle(angle):
-	#print(f"Testing {angle} , duty cycle {duty}")
-	#duty = 3 + 9 * angle /180
-	duty = 2.5 + (10 * angle /180)
-	p.ChangeDutyCycle(duty)
-	time.sleep(0.5)
-	p.ChangeDutyCycle(0)
-
-	
-	
-while(True):
-	user = input ("Enter command: (o = open, c = close, e = exit)").strip().lower()
-	if user == 'o':
-		set_angle(open_angle) 
-		print("Opening Claw")
-	elif user == 'c':
-		print("Closing Claw")
-		set_angle(close_angle)
-	elif user == 'e':
-		print("Exiting")
-		break
-	else:
-		print("Invalid Comment")
+        if cmd == 'o':
+            print("Opening...")
+            claw.open()
+        elif cmd == 'c':
+            print("Closing...")
+            claw.close()
+        elif cmd == 'q':
+            print("Quitting.")
+            break
+        else:
+            print("Invalid Command!")
+finally:
+    claw.stop()
