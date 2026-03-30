@@ -1,26 +1,43 @@
+
 import RPi.GPIO as GPIO
-import time
+import time 
+import signal
 import atexit
 
 atexit.register(GPIO.cleanup)
 
 servopin = 21
 GPIO.setmode(GPIO.BCM)
-GPIO.setup(servopin, GPIO.OUT, initial=False)
-
+GPIO.setup(servopin, GPIO.OUT)
 p = GPIO.PWM(servopin, 50)
 
-angle = 60
-duty = 2.5 + 10 * angle / 180  # duty cycle for 60°
-p.start(duty)  # move to position
-time.sleep(1)  # allow servo to reach position
-p.ChangeDutyCycle(0)  # stop sending signal to reduce jitter
+p.start(0)
+time.sleep(2)
 
-try:
-    while True:
-        time.sleep(1)  # do nothing, just maintain program
 
-except KeyboardInterrupt:
-    print("Stopping...")
-    p.stop()
-    GPIO.cleanup()
+open_angle = 19
+close_angle = 190.98
+
+def set_angle(angle):
+	#print(f"Testing {angle} , duty cycle {duty}")
+	#duty = 3 + 9 * angle /180
+	duty = 2.5 + (10 * angle /180)
+	p.ChangeDutyCycle(duty)
+	time.sleep(0.5)
+	p.ChangeDutyCycle(0)
+
+	
+	
+while(True):
+	user = input ("Enter command: (o = open, c = close, e = exit)").strip().lower()
+	if user == 'o':
+		set_angle(open_angle) 
+		print("Opening Claw")
+	elif user == 'c':
+		print("Closing Claw")
+		set_angle(close_angle)
+	elif user == 'e':
+		print("Exiting")
+		break
+	else:
+		print("Invalid Comment")
