@@ -9,7 +9,7 @@ Angles and pin match test_claw.py configuration.
 import logging
 import time
 
-from raspi_gpio import GPIO
+import RPi.GPIO as GPIO
 
 logger = logging.getLogger(__name__)
 

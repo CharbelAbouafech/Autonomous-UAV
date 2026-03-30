@@ -2,7 +2,7 @@
 """Test the LidarController background reader."""
 
 import time
-from lidar_controller import LidarController
+from controllers.lidar_controller import LidarController
 
 lidar = LidarController()
 lidar.start()

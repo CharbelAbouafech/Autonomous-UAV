@@ -8,7 +8,7 @@ from mavsdk import System
 from mavsdk.offboard import OffboardError, VelocityBodyYawspeed, VelocityNedYaw
 from mavsdk.telemetry import FlightMode
 
-from pid_controller import PIDController
+from controllers.pid_controller import PIDController
 
 # Enable INFO level logging
 logging.basicConfig(level=logging.INFO)

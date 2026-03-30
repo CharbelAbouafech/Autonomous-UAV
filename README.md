@@ -1,4 +1,4 @@
-# UAV Auton – Autonomous Delivery Drone
+# Autonomous Delivery Drone
 
 UAV Auton is an autonomous UAV project building toward a vision-guided delivery system. The drone uses a Pixhawk flight controller with PX4, controlled via MAVSDK from a Raspberry Pi companion computer.
 
