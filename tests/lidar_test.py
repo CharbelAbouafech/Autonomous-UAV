@@ -1,8 +1,8 @@
 import serial
 
-# Open UART port (ttyAMA3)
+# Open UART port (ttyAMA2)
 ser = serial.Serial(
-    port='/dev/ttyAMA3',
+    port='/dev/ttyAMA2',
     baudrate=115200,
     timeout=1
 )

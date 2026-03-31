@@ -10,7 +10,6 @@ from ultralytics import YOLO
 from tracking import cam, HybridTracker
 # from controllers.lidar_controller import LidarController
 # from controllers.claw_controller import ClawController
-import time
 
 USE_PI = True  # Set True when running on Raspberry Pi
 
@@ -29,7 +28,7 @@ async def main():
         )
         picam2.configure(config)
         picam2.start()
-        time.sleep(2)
+        await asyncio.sleep(2)
     else:
         cap = cv2.VideoCapture(0)
 
@@ -75,6 +74,7 @@ async def main():
             cv2.putText(frame, claw_text, (10, 60),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, claw_color, 2)
 
+            cv2.imshow("Track & Grab", frame)
             if cv2.waitKey(1) & 0xFF == ord("q"):
                 break
 
@@ -93,7 +93,7 @@ async def main():
             elif abs(ey_px) > err_min:
                 print("forward" if ey_px < 0 else "backward")
                 # await forward(1 if ey_px < 0 else -1, drone)
-            elif abs(ey_px) < err_min and abs(ex_px) < err_min:
+            else:
                 if lidar_valid and dist_cm <= GRAB_HEIGHT_CM:
                     print(f"Target in range ({dist_cm} cm) — grabbing!")
                     claw.close()

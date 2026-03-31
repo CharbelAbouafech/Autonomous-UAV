@@ -2,7 +2,7 @@
 """
 TFmini Plus LiDAR controller for precise AGL height measurement.
 
-Reads distance over UART (/dev/ttyAMA3, 115200 baud) in a background thread.
+Reads distance over UART (/dev/ttyAMA2, 115200 baud) in a background thread.
 Exposes get_distance() for integration with the async drone controller.
 
 TFmini Plus frame format (9 bytes):
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 HEADER_BYTE = 0x59
 FRAME_SIZE = 9
-DEFAULT_PORT = "/dev/ttyAMA3"
+DEFAULT_PORT = "/dev/ttyAMA2"
 DEFAULT_BAUD = 115200
 MIN_STRENGTH = 100
 MAX_STRENGTH = 65535
