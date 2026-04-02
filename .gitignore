@@ -8,6 +8,3 @@ __pycache__/
 
 # YOLO model weights
 *.pt
-
-# Mission logs
-logs/
