@@ -121,5 +121,4 @@ def cam(frame, model, ht: HybridTracker):
         x, y, w, h = map(int, bbox)
         cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-    cv2.imshow("Hybrid Track", frame)
     return bbox, err_px, frame
