@@ -1,0 +1,5 @@
+mavsdk>=2.0
+ultralytics>=8.0
+opencv-contrib-python>=4.8
+numpy
+picamera2; platform_machine == "aarch64"

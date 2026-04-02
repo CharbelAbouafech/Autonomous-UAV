@@ -1,10 +1,16 @@
 {
-    "altitude_m": 4.0,
-    "search_speed_m_s": 1.0,
-    "search_pattern": "lawnmower",
-    "grid_width_m": 10.0,
-    "grid_length_m": 10.0,
-    "leg_spacing_m": 3.0,
+    "altitude_m": 8.0,
+    "min_altitude_m": 6.1,
+    "search_speed_m_s": 1.5,
+    "leg_spacing_m": 2.0,
+    "search_margin_m": 3.0,
+    "timeout_s": 540,
+    "search_area": [
+        {"lat": 0.0, "lon": 0.0, "label": "GCP-A"},
+        {"lat": 0.0, "lon": 0.0, "label": "GCP-B"},
+        {"lat": 0.0, "lon": 0.0, "label": "GCP-C"},
+        {"lat": 0.0, "lon": 0.0, "label": "GCP-D"}
+    ],
     "yolo_model_path": "camera/yolo26n.pt",
     "yolo_confidence": 0.3,
     "yolo_classes": null,
