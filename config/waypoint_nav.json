@@ -6,12 +6,12 @@
     "optimize_route": true,
     "timeout_s": 540,
     "waypoints": [
-        {"lat": 0.0, "lon": 0.0, "alt_m": 5.0, "label": "WP1"},
-        {"lat": 0.0, "lon": 0.0, "alt_m": 5.0, "label": "WP2"},
-        {"lat": 0.0, "lon": 0.0, "alt_m": 5.0, "label": "WP3"},
-        {"lat": 0.0, "lon": 0.0, "alt_m": 5.0, "label": "WP4"},
-        {"lat": 0.0, "lon": 0.0, "alt_m": 5.0, "label": "WP5"},
-        {"lat": 0.0, "lon": 0.0, "alt_m": 5.0, "label": "WP6"},
-        {"lat": 0.0, "lon": 0.0, "alt_m": 5.0, "label": "WP7"}
+        {"lat": 35.052500, "lon": -118.151000, "alt_m": 5.0, "label": "WP1"},
+        {"lat": 35.050000, "lon": -118.153000, "alt_m": 5.0, "label": "WP2"},
+        {"lat": 35.048000, "lon": -118.152500, "alt_m": 5.0, "label": "WP3"},
+        {"lat": 35.047300, "lon": -118.151500, "alt_m": 5.0, "label": "WP4"},
+        {"lat": 35.049000, "lon": -118.152500, "alt_m": 5.0, "label": "WP5"},
+        {"lat": 35.051000, "lon": -118.150000, "alt_m": 5.0, "label": "WP6"},
+        {"lat": 35.052000, "lon": -118.149200, "alt_m": 5.0, "label": "WP7"}
     ]
 }

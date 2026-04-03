@@ -10,7 +10,7 @@ Competition rules:
     - Up to 7 circuit waypoints provided as ORDERED lat/lon/alt on competition day
     - UAS flies waypoints in order
     - Maximum of 3 full circuits to set a time
-    - Must pass within 2m of each waypoint (judge GPS logger) or lap is invalidated
+    - Must pass within 4m of each waypoint (judge GPS logger) or lap is invalidated
     - Fastest valid lap used for scoring
 
 Config example (config/time_trial.json):

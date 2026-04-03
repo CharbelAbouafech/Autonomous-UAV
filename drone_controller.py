@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import asyncio
+import json
 import logging
 import math
+from pathlib import Path
 
 from mavsdk import System
 from mavsdk.offboard import OffboardError, VelocityBodyYawspeed, VelocityNedYaw
@@ -41,7 +43,14 @@ class DroneController:
         self._failsafe_triggered = False
         self._battery_critical = False
         self._landing_intentional = False
+        self._outside_geofence = False
         self._monitor_tasks = []
+
+        # Load geofence polygon
+        geofence_path = Path(__file__).resolve().parent / "config" / "geofence.json"
+        with open(geofence_path, "r") as f:
+            self._geofence_polygon = json.load(f)["geofence"]
+        logger.info(f"Geofence loaded: {len(self._geofence_polygon)} vertices")
 
     async def connect(self, system_address="udpin://0.0.0.0:14540"):
         """Connect to drone"""
@@ -145,7 +154,45 @@ class DroneController:
 
     def is_safe_to_continue(self):
         """Check if it's safe to continue testing."""
-        return not self._failsafe_triggered and not self._battery_critical
+        return not self._failsafe_triggered and not self._battery_critical and not self._outside_geofence
+
+    @staticmethod
+    def _point_in_polygon(lat, lon, polygon):
+        """Ray-casting algorithm to check if (lat, lon) is inside a polygon."""
+        n = len(polygon)
+        inside = False
+        j = n - 1
+        for i in range(n):
+            lat_i, lon_i = polygon[i]["lat"], polygon[i]["lon"]
+            lat_j, lon_j = polygon[j]["lat"], polygon[j]["lon"]
+            if ((lon_i > lon) != (lon_j > lon)) and \
+               (lat < (lat_j - lat_i) * (lon - lon_i) / (lon_j - lon_i) + lat_i):
+                inside = not inside
+            j = i
+        return inside
+
+    async def _monitor_geofence(self):
+        """Background task: land immediately if drone leaves geofence polygon."""
+        try:
+            async for pos in self.drone.telemetry.position():
+                if self._outside_geofence:
+                    break
+                lat = pos.latitude_deg
+                lon = pos.longitude_deg
+                if not self._point_in_polygon(lat, lon, self._geofence_polygon):
+                    logger.critical(
+                        f"GEOFENCE BREACH at ({lat:.6f}, {lon:.6f}) — landing immediately!"
+                    )
+                    self._outside_geofence = True
+                    self._landing_intentional = True
+                    try:
+                        await self.drone.offboard.stop()
+                    except Exception:
+                        pass
+                    await self.drone.action.land()
+                    break
+        except asyncio.CancelledError:
+            pass
 
     async def _monitor_flight_mode(self):
         """Background task: detect PX4 failsafe."""
@@ -171,10 +218,11 @@ class DroneController:
             pass
 
     def start_monitors(self):
-        """Start background battery and flight mode monitoring."""
+        """Start background battery, flight mode, and geofence monitoring."""
         self._monitor_tasks = [
             asyncio.ensure_future(self._monitor_flight_mode()),
             asyncio.ensure_future(self._monitor_battery()),
+            asyncio.ensure_future(self._monitor_geofence()),
         ]
         logger.info("-- Safety monitors started")
 

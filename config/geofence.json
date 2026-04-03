@@ -1,0 +1,12 @@
+{
+    "geofence": [
+        {"lat": 35.053222, "lon": -118.151900, "alt_m": 833.87, "label": "Geofence Point 1"},
+        {"lat": 35.050231, "lon": -118.151981, "alt_m": 831.11, "label": "Geofence Point 2"},
+        {"lat": 35.050264, "lon": -118.153483, "alt_m": 831.94, "label": "Geofence Point 3"},
+        {"lat": 35.047071, "lon": -118.153542, "alt_m": 829.70, "label": "Geofence Point 4"},
+        {"lat": 35.047092, "lon": -118.150531, "alt_m": 828.59, "label": "Geofence Point 5"},
+        {"lat": 35.049014, "lon": -118.150539, "alt_m": 830.14, "label": "Geofence Point 6"},
+        {"lat": 35.049011, "lon": -118.148583, "alt_m": 828.62, "label": "Geofence Point 7"},
+        {"lat": 35.053200, "lon": -118.148542, "alt_m": 831.09, "label": "Geofence Point 8"}
+    ]
+}

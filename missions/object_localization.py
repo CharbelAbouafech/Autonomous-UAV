@@ -13,14 +13,14 @@ Two concurrent asyncio tasks handle flight and detection independently:
 Competition rules:
     - 3-4 large GCPs (~1.2m) define the search area
     - 5-10 smaller targets (~0.6m) with black numbers on white sections
-    - Must not descend below 20ft (6.1m) AGL
+    - Must not descend below 25ft (7.62m) AGL
     - 10 minutes to identify, classify, and localize all targets
     - Targets are survey-style ground control points (e.g. Amazon B07PHPFPJ3)
 
 Config example (config/object_localization.json):
     {
         "altitude_m": 8.0,
-        "min_altitude_m": 6.1,
+        "min_altitude_m": 7.62,
         "search_speed_m_s": 1.5,
         "leg_spacing_m": 2.0,
         "timeout_s": 540,
@@ -47,9 +47,9 @@ from missions.base_mission import BaseMission
 
 logger = logging.getLogger(__name__)
 
-# Competition minimum altitude: 20 feet AGL
-MIN_ALTITUDE_FT = 20
-MIN_ALTITUDE_M = MIN_ALTITUDE_FT * 0.3048  # ~6.096m
+# Competition minimum altitude: 25 feet AGL
+MIN_ALTITUDE_FT = 25
+MIN_ALTITUDE_M = MIN_ALTITUDE_FT * 0.3048  # 7.62m
 
 
 class ObjectLocalizationMission(BaseMission):
