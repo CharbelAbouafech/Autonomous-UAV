@@ -112,6 +112,7 @@ class WaypointNavMission(BaseMission):
                 acceptance_radius_m=acceptance,
                 yaw_deg=float("nan"),
                 camera_photo_distance_m=float("nan"),
+                vehicle_action=MissionItem.VehicleAction.NONE,
             )
             items.append(item)
             label = wp.get("label", f"WP{i}")
