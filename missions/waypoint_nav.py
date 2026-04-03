@@ -121,7 +121,8 @@ class WaypointNavMission(BaseMission):
         return items
 
     async def pre_execute(self):
-        """Mission mode handles arm + takeoff via PX4. We just start monitors."""
+        """Arm the drone, then start monitors. PX4 mission mode handles takeoff."""
+        await self.controller.drone.action.arm()
         self.controller.start_monitors()
 
     async def execute(self):
