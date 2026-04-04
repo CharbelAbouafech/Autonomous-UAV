@@ -47,9 +47,11 @@ from missions.base_mission import BaseMission
 
 logger = logging.getLogger(__name__)
 
-# Competition minimum altitude: 25 feet AGL
+# Competition minimum altitude: 25 feet AGL (below this: -3 pts; below 20ft: flat 0)
 MIN_ALTITUDE_FT = 25
-MIN_ALTITUDE_M = MIN_ALTITUDE_FT * 0.3048  # 7.62m
+MIN_ALTITUDE_M = MIN_ALTITUDE_FT * 0.3048   # 7.62m
+ZERO_SCORE_ALTITUDE_FT = 20
+ZERO_SCORE_ALTITUDE_M = ZERO_SCORE_ALTITUDE_FT * 0.3048  # 6.096m
 
 
 class ObjectLocalizationMission(BaseMission):
@@ -199,6 +201,12 @@ class ObjectLocalizationMission(BaseMission):
                 # Altitude safety check — do not descend below minimum
                 _, _, alt = await self.controller.get_gps_position()
                 min_alt = self.config.get("min_altitude_m", MIN_ALTITUDE_M)
+                if alt < ZERO_SCORE_ALTITUDE_M:
+                    logger.error(
+                        f"Altitude {alt:.1f}m below {ZERO_SCORE_ALTITUDE_FT}ft "
+                        f"— ZERO SCORE penalty threshold breached!"
+                    )
+                    self.result.data["zero_score_altitude_breach"] = True
                 if alt < min_alt:
                     logger.warning(
                         f"Altitude {alt:.1f}m below minimum {min_alt:.1f}m — climbing"
@@ -393,5 +401,10 @@ class ObjectLocalizationMission(BaseMission):
         except Exception:
             pass
         await self.controller.land()
-        await asyncio.sleep(10)
+        logger.info("-- Waiting for drone to land...")
+        async for in_air in self.controller.drone.telemetry.in_air():
+            if not in_air:
+                logger.info("-- Drone is on the ground")
+                break
+        await asyncio.sleep(2)
         self.controller.stop_monitors()

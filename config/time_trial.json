@@ -2,7 +2,7 @@
     "altitude_m": 5.0,
     "speed_m_s": 5.0,
     "acceptance_radius_m": 4.0,
-    "max_laps": 3,
+    "optimize_route": true,
     "timeout_s": 540,
     "waypoints": [
         {"lat": 35.052000, "lon": -118.150500, "label": "Gate 1"},
