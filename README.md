@@ -53,7 +53,7 @@ python main.py waypoint_nav --config config/custom.json
 python main.py waypoint_nav --address udpin://0.0.0.0:14540
 ```
 
-Results are saved as JSON in `logs/` after each run.
+Results are saved as JSON in `logs/` after each run (directory created automatically).
 
 ---
 
@@ -79,8 +79,7 @@ Autonomous-UAV/
 │   ├── time_trial.json          # Time trial params + GPS placeholders
 │   ├── object_localization.json # Localization params + search area
 │   └── geofence.json            # Competition boundary polygon (lat/lon vertices)
-├── logs/                        # Mission result JSONs (gitignored)
-└── no_longer_needed/            # Deprecated code (LiDAR, claw, old camera)
+└── ECE_and_ME_UAV_Design/       # CAD files — claw, GPS puck, dome (SolidWorks/STL/DXF)
 ```
 
 ---
