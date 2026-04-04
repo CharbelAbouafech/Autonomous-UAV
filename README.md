@@ -62,7 +62,8 @@ Results are saved as JSON in `logs/` after each run.
 ```
 Autonomous-UAV/
 ├── main.py                      # CLI entry point
-├── drone_controller.py          # MAVSDK wrapper — offboard, mission, PID, safety
+├── drone_controller.py          # MAVSDK wrapper — offboard, mission, PID, geofence, safety
+├── flight_tests.py              # Hover, velocity, PID flight tests
 ├── requirements.txt             # Python dependencies
 ├── controllers/
 │   └── pid_controller.py        # PID controller (error -> velocity)
@@ -76,9 +77,8 @@ Autonomous-UAV/
 ├── config/
 │   ├── waypoint_nav.json        # Waypoint nav params + GPS placeholders
 │   ├── time_trial.json          # Time trial params + GPS placeholders
-│   └── object_localization.json # Localization params + search area
-├── tests/
-│   └── flight_tests.py          # Hover, velocity, PID flight tests
+│   ├── object_localization.json # Localization params + search area
+│   └── geofence.json            # Competition boundary polygon (lat/lon vertices)
 ├── logs/                        # Mission result JSONs (gitignored)
 └── no_longer_needed/            # Deprecated code (LiDAR, claw, old camera)
 ```
@@ -145,6 +145,7 @@ If anything fails, the emergency abort cascade triggers: stop offboard -> RTL ->
 | Pre-flight gate | Blocks launch if battery/GPS/IMU checks fail |
 | Battery monitor | Background task, aborts at 30%, warns at 40% |
 | Flight mode monitor | Detects PX4 failsafe (unexpected RTL/LAND) |
+| Geofence monitor | Lands immediately if drone exits boundary polygon (2m breach buffer for GPS jitter); polygon also uploaded to PX4/QGC |
 | Altitude floor | Object localization enforces 20ft AGL minimum |
 | Mission timeout | Auto-RTL/land if mission exceeds time limit |
 | In-loop checks | Every mission loop checks `is_safe_to_continue()` |
