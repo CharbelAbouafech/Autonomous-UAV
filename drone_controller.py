@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 
 from mavsdk import System
+from mavsdk.geofence import GeofenceData, Point, Polygon
 from mavsdk.offboard import OffboardError, VelocityBodyYawspeed, VelocityNedYaw
 from mavsdk.mission import MissionItem, MissionPlan
 from mavsdk.telemetry import FlightMode
@@ -68,6 +69,17 @@ class DroneController:
             if health.is_global_position_ok and health.is_home_position_ok:
                 logger.info("-- Global position estimate OK")
                 break
+
+        await self.upload_geofence()
+
+    async def upload_geofence(self):
+        """Upload geofence polygon to PX4 so QGC displays it on the map."""
+        points = [
+            Point(pt["lat"], pt["lon"]) for pt in self._geofence_polygon
+        ]
+        polygon = Polygon(points, Polygon.FenceType.INCLUSION)
+        await self.drone.geofence.upload_geofence(GeofenceData([polygon], []))
+        logger.info("-- Geofence uploaded to PX4 (visible in QGC)")
 
     async def pre_flight_check(self):
         """Verify drone is safe to fly. Returns True if all checks pass."""
@@ -171,8 +183,40 @@ class DroneController:
             j = i
         return inside
 
-    async def _monitor_geofence(self):
-        """Background task: land immediately if drone leaves geofence polygon."""
+    @staticmethod
+    def _distance_to_polygon_m(lat, lon, polygon):
+        """Approximate distance in meters from point to nearest polygon edge.
+        Uses flat-earth approximation (valid for small areas)."""
+        min_dist = float("inf")
+        n = len(polygon)
+        cos_lat = math.cos(math.radians(lat))
+        for i in range(n):
+            j = (i + 1) % n
+            # Convert polygon edge endpoints to local meters relative to the point
+            ax = (polygon[i]["lat"] - lat) * 111139
+            ay = (polygon[i]["lon"] - lon) * 111139 * cos_lat
+            bx = (polygon[j]["lat"] - lat) * 111139
+            by = (polygon[j]["lon"] - lon) * 111139 * cos_lat
+            dx, dy = bx - ax, by - ay
+            len_sq = dx * dx + dy * dy
+            if len_sq == 0:
+                dist = math.sqrt(ax * ax + ay * ay)
+            else:
+                t = max(0.0, min(1.0, (-ax * dx + -ay * dy) / len_sq))
+                nearest_x = ax + t * dx
+                nearest_y = ay + t * dy
+                dist = math.sqrt(nearest_x * nearest_x + nearest_y * nearest_y)
+            min_dist = min(min_dist, dist)
+        return min_dist
+
+    async def _monitor_geofence(self, breach_buffer_m=2.0):
+        """Background task: land immediately if drone leaves geofence polygon.
+
+        Args:
+            breach_buffer_m: Only trigger if drone is more than this many meters
+                             outside the polygon. Prevents false positives from
+                             GPS jitter near the boundary.
+        """
         try:
             async for pos in self.drone.telemetry.position():
                 if self._outside_geofence:
@@ -180,8 +224,12 @@ class DroneController:
                 lat = pos.latitude_deg
                 lon = pos.longitude_deg
                 if not self._point_in_polygon(lat, lon, self._geofence_polygon):
+                    dist = self._distance_to_polygon_m(lat, lon, self._geofence_polygon)
+                    if dist < breach_buffer_m:
+                        continue  # GPS jitter near boundary, not a real breach
                     logger.critical(
-                        f"GEOFENCE BREACH at ({lat:.6f}, {lon:.6f}) — landing immediately!"
+                        f"GEOFENCE BREACH at ({lat:.6f}, {lon:.6f}) "
+                        f"{dist:.1f}m outside — landing immediately!"
                     )
                     self._outside_geofence = True
                     self._landing_intentional = True
