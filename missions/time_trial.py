@@ -87,7 +87,8 @@ class TimeTrialMission(BaseMission):
         return single_lap * num_laps
 
     async def pre_execute(self):
-        """Mission mode handles arm + takeoff. We just start monitors."""
+        """Arm the drone, then start monitors. PX4 mission mode handles takeoff."""
+        await self.controller.drone.action.arm()
         self.controller.start_monitors()
 
     async def execute(self):
@@ -158,6 +159,10 @@ class TimeTrialMission(BaseMission):
 
                     last_index = current
 
+                if not self.controller.is_safe_to_continue():
+                    logger.warning("Safety check failed — stopping time trial monitor")
+                    return
+
                 if current >= total:
                     # Record final lap
                     lap_time = time.time() - lap_start
@@ -199,5 +204,10 @@ class TimeTrialMission(BaseMission):
     async def post_execute(self):
         """Land after completing laps."""
         await self.controller.land()
-        await asyncio.sleep(10)
+        logger.info("-- Waiting for drone to land...")
+        async for in_air in self.controller.drone.telemetry.in_air():
+            if not in_air:
+                logger.info("-- Drone is on the ground")
+                break
+        await asyncio.sleep(2)
         self.controller.stop_monitors()
