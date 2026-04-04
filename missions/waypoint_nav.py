@@ -70,7 +70,7 @@ class WaypointNavMission(BaseMission):
         """
         n = len(waypoints)
         if n <= 1:
-            return list(range(n))
+            return list(range(n)), 0.0
 
         def route_distance(order):
             dist = 0.0
@@ -155,22 +155,40 @@ class WaypointNavMission(BaseMission):
         logger.info(f"Monitoring mission progress (timeout: {timeout}s)...")
         try:
             await asyncio.wait_for(
-                self.controller.wait_for_mission_complete(),
+                self._monitor_until_done(),
                 timeout=timeout,
             )
         except asyncio.TimeoutError:
             logger.error(f"Mission timed out after {timeout}s!")
             self.result.data["timed_out"] = True
-            # RTL on timeout
+            self.controller._rtl_intentional = True
             await self.controller.drone.action.return_to_launch()
 
         self.result.data["waypoints_count"] = len(mission_items)
         self.result.data["route_optimized"] = self.config.get("optimize_route", True)
 
+    async def _monitor_until_done(self):
+        """Wait for mission complete, aborting early if safety check fails."""
+        async for progress in self.controller.drone.mission.mission_progress():
+            if progress.total == 0:
+                continue
+            logger.info(f"  Mission progress: {progress.current}/{progress.total}")
+            if not self.controller.is_safe_to_continue():
+                logger.warning("Safety check failed — stopping mission monitor")
+                return
+            if progress.current == progress.total:
+                logger.info("-- Mission complete")
+                return
+
     async def post_execute(self):
         """If rtl_after is set, PX4 handles RTL. Otherwise land manually."""
         if not self.config.get("rtl_after", True):
             await self.controller.land()
-        # Wait for the vehicle to be on the ground
-        await asyncio.sleep(10)
+        # Wait for the vehicle to be on the ground before stopping monitors
+        logger.info("-- Waiting for drone to land...")
+        async for in_air in self.controller.drone.telemetry.in_air():
+            if not in_air:
+                logger.info("-- Drone is on the ground")
+                break
+        await asyncio.sleep(2)
         self.controller.stop_monitors()

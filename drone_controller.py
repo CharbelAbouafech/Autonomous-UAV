@@ -44,6 +44,7 @@ class DroneController:
         self._failsafe_triggered = False
         self._battery_critical = False
         self._landing_intentional = False
+        self._rtl_intentional = False
         self._outside_geofence = False
         self._monitor_tasks = []
 
@@ -247,7 +248,7 @@ class DroneController:
         try:
             async for mode in self.drone.telemetry.flight_mode():
                 if mode in (FlightMode.RETURN_TO_LAUNCH, FlightMode.LAND):
-                    if not self._failsafe_triggered and not self._landing_intentional:
+                    if not self._failsafe_triggered and not self._landing_intentional and not self._rtl_intentional:
                         logger.warning(f"!! PX4 FAILSAFE: flight mode changed to {mode}")
                         self._failsafe_triggered = True
         except asyncio.CancelledError:
@@ -384,6 +385,8 @@ class DroneController:
         """
         plan = MissionPlan(mission_items)
         await self.drone.mission.set_return_to_launch_after_mission(rtl_after)
+        if rtl_after:
+            self._rtl_intentional = True
 
         logger.info("Uploading mission...")
         await self.drone.mission.upload_mission(plan)
@@ -395,6 +398,8 @@ class DroneController:
     async def wait_for_mission_complete(self):
         """Block until PX4 mission is finished. Logs progress updates."""
         async for progress in self.drone.mission.mission_progress():
+            if progress.total == 0:
+                continue  # mission not yet loaded, skip 0/0 reads
             logger.info(f"  Mission progress: {progress.current}/{progress.total}")
             if progress.current == progress.total:
                 logger.info("-- Mission complete")
