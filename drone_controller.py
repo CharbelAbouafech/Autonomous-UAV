@@ -7,7 +7,7 @@ import math
 from pathlib import Path
 
 from mavsdk import System
-from mavsdk.geofence import GeofenceData, Point, Polygon
+from mavsdk.geofence import FenceType, GeofenceData, Point, Polygon
 from mavsdk.offboard import OffboardError, VelocityBodyYawspeed, VelocityNedYaw
 from mavsdk.mission import MissionItem, MissionPlan
 from mavsdk.telemetry import FlightMode
@@ -77,7 +77,7 @@ class DroneController:
         points = [
             Point(pt["lat"], pt["lon"]) for pt in self._geofence_polygon
         ]
-        polygon = Polygon(points, Polygon.FenceType.INCLUSION)
+        polygon = Polygon(points, FenceType.INCLUSION)
         await self.drone.geofence.upload_geofence(GeofenceData([polygon], []))
         logger.info("-- Geofence uploaded to PX4 (visible in QGC)")
 
