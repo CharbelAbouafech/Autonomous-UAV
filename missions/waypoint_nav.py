@@ -121,7 +121,6 @@ class WaypointNavMission(BaseMission):
         waypoints = list(self.config["waypoints"])
 
         if self.config.get("optimize_route", True):
-            # Use current GPS position as route start for accurate optimization
             start_pos = None
             try:
                 lat, lon, alt = await self.controller.get_gps_position()
@@ -135,17 +134,22 @@ class WaypointNavMission(BaseMission):
         else:
             logger.info("Route optimization disabled, using config order")
 
+        self._ordered_waypoints = waypoints
         mission_items = self._build_mission_items(waypoints)
         rtl_after = self.config.get("rtl_after", True)
         logger.info(f"Uploading {len(mission_items)} waypoints before arming...")
         await self.controller.upload_mission(mission_items, rtl_after=rtl_after)
 
-        logger.info("-- Arming")
-        await self.controller.drone.action.arm()
+        await self.controller.arm_and_fly(
+            first_waypoint=waypoints[0],
+            altitude=self.config.get("altitude_m", 5.0),
+            speed_m_s=self.config.get("speed_m_s", 2.0),
+            ramp_time_s=self.config.get("ramp_time_s", 3.0),
+        )
         self.controller.start_monitors()
 
     async def execute(self):
-        """Start mission and monitor. PX4 handles takeoff and navigation simultaneously."""
+        """Start pre-uploaded mission and monitor until complete."""
         timeout = self.config.get("timeout_s", 540)
 
         await self.controller.start_mission()
@@ -166,6 +170,7 @@ class WaypointNavMission(BaseMission):
         async for progress in self.controller.drone.mission.mission_progress():
             if progress.total == 0:
                 continue
+            self.controller._current_mission_index = progress.current
             logger.info(f"  Mission progress: {progress.current}/{progress.total}")
             if not self.controller.is_safe_to_continue():
                 logger.warning("Safety check failed — stopping mission")

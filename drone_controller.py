@@ -48,6 +48,13 @@ class DroneController:
         self._outside_geofence = False
         self._monitor_tasks = []
 
+        # Dual geofence state
+        # Hard geofence: inner boundary (inset from soft). Breach → return to prev waypoint, resume.
+        # Soft geofence: competition boundary. Breach → RTL, mission over.
+        self._hard_geofence_breach = False
+        self._current_mission_index = 0   # updated by waypoint_nav mission monitor
+        self.hard_geofence_margin_m = 15.0  # meters inset from soft geofence boundary
+
         # Load geofence polygon
         geofence_path = Path(__file__).resolve().parent / "config" / "geofence.json"
         with open(geofence_path, "r") as f:
@@ -219,38 +226,68 @@ class DroneController:
             min_dist = min(min_dist, dist)
         return min_dist
 
-    async def _monitor_geofence(self, breach_buffer_m=2.0):
-        """Background task: land immediately if drone leaves geofence polygon.
+    async def _monitor_geofence(self, gps_jitter_buffer_m=2.0):
+        """Background task: dual-layer geofence enforcement.
 
-        Args:
-            breach_buffer_m: Only trigger if drone is more than this many meters
-                             outside the polygon. Prevents false positives from
-                             GPS jitter near the boundary.
+        Hard geofence (inner boundary — inset by hard_geofence_margin_m from soft edge):
+            Breach → pause mission, return to previous waypoint, resume.
+            Drone stays in the air and continues the mission.
+
+        Soft geofence (competition boundary — the actual polygon):
+            Breach → RTL immediately. Mission is over.
         """
         try:
             async for pos in self.drone.telemetry.position():
                 if self._outside_geofence:
                     break
+
                 lat = pos.latitude_deg
                 lon = pos.longitude_deg
-                if not self._point_in_polygon(lat, lon, self._geofence_polygon):
-                    dist = self._distance_to_polygon_m(lat, lon, self._geofence_polygon)
-                    if dist < breach_buffer_m:
-                        continue  # GPS jitter near boundary, not a real breach
+                dist_to_edge = self._distance_to_polygon_m(lat, lon, self._geofence_polygon)
+                inside = self._point_in_polygon(lat, lon, self._geofence_polygon)
+
+                # --- Soft geofence: outside the polygon ---
+                if not inside:
+                    if dist_to_edge < gps_jitter_buffer_m:
+                        continue  # GPS jitter near boundary, ignore
                     logger.critical(
-                        f"GEOFENCE BREACH at ({lat:.6f}, {lon:.6f}) "
-                        f"{dist:.1f}m outside — landing immediately!"
+                        f"SOFT GEOFENCE BREACH at ({lat:.6f}, {lon:.6f}) "
+                        f"{dist_to_edge:.1f}m outside — RTL!"
                     )
                     self._outside_geofence = True
-                    self._landing_intentional = True
+                    self._rtl_intentional = True
                     try:
                         await self.drone.offboard.stop()
                     except Exception:
                         pass
-                    await self.drone.action.land()
+                    await self.drone.action.return_to_launch()
                     break
+
+                # --- Hard geofence: inside polygon but within margin of edge ---
+                if inside and dist_to_edge < self.hard_geofence_margin_m and not self._hard_geofence_breach:
+                    logger.warning(
+                        f"HARD GEOFENCE WARNING at ({lat:.6f}, {lon:.6f}) "
+                        f"{dist_to_edge:.1f}m from boundary — returning to previous waypoint"
+                    )
+                    self._hard_geofence_breach = True
+                    await self._return_to_previous_waypoint()
+                    self._hard_geofence_breach = False  # reset after recovery
+
         except asyncio.CancelledError:
             pass
+
+    async def _return_to_previous_waypoint(self):
+        """Pause mission, go back to previous waypoint, resume."""
+        try:
+            prev_index = max(0, self._current_mission_index - 1)
+            logger.info(f"-- Returning to waypoint {prev_index}...")
+            await self.drone.mission.pause_mission()
+            await asyncio.sleep(0.5)
+            await self.drone.mission.set_current_mission_item(prev_index)
+            await self.drone.mission.start_mission()
+            logger.info(f"-- Mission resumed from waypoint {prev_index}")
+        except Exception as e:
+            logger.error(f"Failed to return to previous waypoint: {e}")
 
     async def _monitor_flight_mode(self):
         """Background task: detect PX4 failsafe."""
@@ -402,6 +439,86 @@ class DroneController:
         async for heading in self.drone.telemetry.heading():
             return heading.heading_deg
 
+    async def arm_and_fly(self, first_waypoint=None, altitude=SAFE_ALTITUDE,
+                          speed_m_s=2.0, ramp_time_s=3.0):
+        """Arm then S-curve ramp: climb to altitude while accelerating toward first_waypoint.
+
+        If first_waypoint is provided, the drone climbs and accelerates toward it
+        simultaneously using an S-curve profile. By the time this returns, the drone
+        is at altitude and cruise speed — call start_mission() immediately after for
+        a smooth, jolt-free transition into mission mode.
+
+        If first_waypoint is None, climbs vertically and hovers at altitude.
+
+        Args:
+            first_waypoint: dict with 'lat'/'lon', or None for vertical climb only
+            altitude:       target altitude in meters
+            speed_m_s:      cruise speed to ramp up to
+            ramp_time_s:    duration of the S-curve ramp
+        """
+        logger.info("-- Arming")
+        await self.drone.action.arm()
+
+        climb_speed = 1.5  # m/s upward
+
+        if first_waypoint is not None:
+            lat, lon, _ = await self.get_gps_position()
+            dlat = first_waypoint["lat"] - lat
+            dlon = (first_waypoint["lon"] - lon) * math.cos(math.radians(lat))
+            bearing = math.atan2(dlon, dlat)
+            yaw_deg = math.degrees(bearing) % 360
+            north_unit = math.cos(bearing)
+            east_unit = math.sin(bearing)
+            logger.info(
+                f"-- S-curve ramp: {ramp_time_s}s to {speed_m_s}m/s toward first waypoint, "
+                f"climbing to {altitude}m simultaneously"
+            )
+        else:
+            yaw_deg, north_unit, east_unit = 0.0, 0.0, 0.0
+            logger.info(f"-- Vertical climb to {altitude}m")
+
+        # Set zero setpoint before starting offboard (PX4 requirement)
+        await self.drone.offboard.set_velocity_ned(
+            VelocityNedYaw(0.0, 0.0, 0.0, yaw_deg)
+        )
+        await self.drone.offboard.start()
+
+        dt = 0.05  # 20 Hz
+        steps = int(ramp_time_s / dt)
+        current_alt = 0.0
+
+        for i in range(1, steps + 1):
+            t = i / steps
+            v = speed_m_s * 0.5 * (1 - math.cos(math.pi * t))  # S-curve
+            v_down = -climb_speed if current_alt < altitude * 0.95 else 0.0
+
+            await self.drone.offboard.set_velocity_ned(
+                VelocityNedYaw(north_unit * v, east_unit * v, v_down, yaw_deg)
+            )
+
+            if i % 10 == 0:  # sample altitude every 0.5s
+                try:
+                    _, _, current_alt = await self.get_gps_position()
+                except Exception:
+                    pass
+
+            await asyncio.sleep(dt)
+
+        # If still below target altitude, hold cruise speed and finish climbing
+        _, _, current_alt = await self.get_gps_position()
+        if current_alt < altitude * 0.95:
+            logger.info("-- Holding cruise speed, finishing climb...")
+            async for pos in self.drone.telemetry.position():
+                await self.drone.offboard.set_velocity_ned(
+                    VelocityNedYaw(north_unit * speed_m_s, east_unit * speed_m_s, -climb_speed, yaw_deg)
+                )
+                if pos.relative_altitude_m >= altitude * 0.95:
+                    break
+
+        logger.info(f"-- At {altitude}m and {speed_m_s}m/s — ready for mission")
+        await self.drone.offboard.stop()
+        await asyncio.sleep(0.3)
+
     async def upload_mission(self, mission_items, rtl_after=False):
         """Upload mission plan to PX4 without starting it.
 
@@ -422,17 +539,6 @@ class DroneController:
         """Start a previously uploaded mission."""
         await self.drone.mission.start_mission()
         logger.info("-- Mission started")
-
-    async def arm_and_start_mission(self):
-        """Arm, start monitors, and start the pre-uploaded mission.
-
-        PX4 handles takeoff and navigation to waypoints simultaneously —
-        optimal for competition where time matters.
-        """
-        logger.info("-- Arming")
-        await self.drone.action.arm()
-        self.start_monitors()
-        await self.start_mission()
 
     async def upload_and_run_mission(self, mission_items, rtl_after=False):
         """Upload a list of MissionItems to PX4 and start the mission."""

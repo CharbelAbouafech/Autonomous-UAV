@@ -120,16 +120,9 @@ class TimeTrialMission(BaseMission):
         return items
 
     async def pre_execute(self):
-        """Arm the drone, then start monitors. PX4 mission mode handles takeoff."""
-        await self.controller.drone.action.arm()
-        self.controller.start_monitors()
-
-    async def execute(self):
-        """Optimize route, upload waypoints, fly the run, and time it."""
+        """Optimize route, upload mission, report to judges, arm and S-curve ramp."""
         waypoints = list(self.config["waypoints"])
-        timeout = self.config.get("timeout_s", 540)
 
-        # Optimize route if enabled
         if self.config.get("optimize_route", True):
             start_pos = None
             try:
@@ -144,27 +137,42 @@ class TimeTrialMission(BaseMission):
         else:
             logger.info("Route optimization disabled, using config order")
 
-        # Report start/end waypoints — operator must relay these to judges before flight
+        self._ordered_waypoints = waypoints
+
+        # Report start/end to judges before arming
         start_wp = waypoints[0]
         end_wp = waypoints[-1]
         logger.info(
             f"\n  *** REPORT TO JUDGES ***\n"
-            f"  Start waypoint: {start_wp.get('label', 'WP1')} "
-            f"({start_wp['lat']:.6f}, {start_wp['lon']:.6f})\n"
-            f"  End waypoint:   {end_wp.get('label', f'WP{len(waypoints)}')} "
-            f"({end_wp['lat']:.6f}, {end_wp['lon']:.6f})\n"
+            f"  Start: {start_wp.get('label', 'WP1')} ({start_wp['lat']:.6f}, {start_wp['lon']:.6f})\n"
+            f"  End:   {end_wp.get('label', f'WP{len(waypoints)}')} ({end_wp['lat']:.6f}, {end_wp['lon']:.6f})\n"
             f"  *** END REPORT ***\n"
         )
-
-        logger.info("Waypoint order:")
         for i, wp in enumerate(waypoints):
-            logger.info(f"  {i + 1}. {wp.get('label', f'WP{i}')}: ({wp['lat']:.6f}, {wp['lon']:.6f})")
+            logger.info(f"  {i + 1}. {wp.get('label', f'WP{i + 1}')}: ({wp['lat']:.6f}, {wp['lon']:.6f})")
 
         mission_items = self._build_mission_items(waypoints)
-        logger.info(f"Uploading {len(mission_items)} waypoints...")
-        await self.controller.upload_and_run_mission(mission_items, rtl_after=False)
+        logger.info(f"Uploading {len(mission_items)} waypoints before arming...")
+        await self.controller.upload_mission(mission_items, rtl_after=False)
 
-        # Time the run: start when first waypoint is reached, end when last is reached
+        await self.controller.arm_and_fly(
+            first_waypoint=waypoints[0],
+            altitude=self.config.get("altitude_m", 5.0),
+            speed_m_s=self.config.get("speed_m_s", 5.0),
+            ramp_time_s=self.config.get("ramp_time_s", 3.0),
+        )
+        self.controller.start_monitors()
+
+    async def execute(self):
+        """Start pre-uploaded mission, time the run, and monitor until complete."""
+        timeout = self.config.get("timeout_s", 540)
+        waypoints = self._ordered_waypoints
+        start_wp = waypoints[0]
+        end_wp = waypoints[-1]
+
+        await self.controller.start_mission()
+        logger.info("Mission started — timing run...")
+
         run_start = None
         run_end = None
         checkpoints = []
@@ -178,24 +186,21 @@ class TimeTrialMission(BaseMission):
                 total = progress.total
 
                 if total == 0:
-                    continue  # mission not yet loaded
+                    continue
 
                 if current != last_index and current > 0:
+                    self.controller._current_mission_index = current
                     now = time.time()
 
-                    # Start timer when first waypoint is reached
                     if current == 1:
                         run_start = now
-                        logger.info(
-                            f"  Timer STARTED at {start_wp.get('label', 'WP1')}"
-                        )
+                        logger.info(f"  Timer STARTED at {start_wp.get('label', 'WP1')}")
 
                     if run_start is not None:
                         elapsed = now - run_start
                         label = waypoints[current - 1].get("label", f"WP{current}")
                         prev_elapsed = checkpoints[-1]["elapsed"] if checkpoints else 0.0
                         leg_time = elapsed - prev_elapsed
-
                         checkpoints.append({
                             "waypoint": label,
                             "elapsed": round(elapsed, 3),
@@ -206,14 +211,13 @@ class TimeTrialMission(BaseMission):
                     last_index = current
 
                 if not self.controller.is_safe_to_continue():
-                    logger.warning("Safety check failed — stopping time trial monitor")
+                    logger.warning("Safety check failed — stopping time trial")
                     return
 
                 if current >= total:
                     if run_start is not None:
                         run_end = time.time()
-                        total_time = run_end - run_start
-                        logger.info(f"\n  === RUN TIME: {total_time:.2f}s ===\n")
+                        logger.info(f"\n  === RUN TIME: {run_end - run_start:.2f}s ===\n")
                     break
 
         try:
