@@ -304,8 +304,25 @@ class DroneController:
                 logger.info("-- Drone is airborne!")
                 break
 
-        # Give it time to reach target altitude and stabilize
-        await asyncio.sleep(5)
+        # Wait until drone reaches target altitude and vertical velocity is near zero
+        logger.info(f"-- Climbing to {altitude}m, waiting for stabilization...")
+        ALTITUDE_THRESHOLD = 0.3   # meters from target
+        VELOCITY_THRESHOLD = 0.1   # m/s vertical — "settled"
+        STABLE_DURATION = 1.5      # seconds it must stay stable before proceeding
+        stable_since = None
+
+        async for pos_vel in self.drone.telemetry.position_velocity_ned():
+            alt_ok = abs(-pos_vel.position.down_m - altitude) < ALTITUDE_THRESHOLD
+            vel_ok = abs(pos_vel.velocity.down_m_s) < VELOCITY_THRESHOLD
+
+            if alt_ok and vel_ok:
+                if stable_since is None:
+                    stable_since = asyncio.get_event_loop().time()
+                elif asyncio.get_event_loop().time() - stable_since >= STABLE_DURATION:
+                    logger.info(f"-- Stabilized at {-pos_vel.position.down_m:.1f}m, proceeding")
+                    break
+            else:
+                stable_since = None
 
     async def start_offboard(self):
         """Start offboard mode and set initial velocity"""
