@@ -75,6 +75,11 @@ class DroneController:
         await self.drone.param.set_param_int("COM_RC_IN_MODE", 4)
         logger.info("-- COM_RC_IN_MODE set to 4 (no RC input required)")
 
+        # Smooth acceleration — prevents lurching when mission mode engages
+        await self.drone.param.set_param_float("MPC_ACC_HOR", 1.5)   # default 3.0 m/s²
+        await self.drone.param.set_param_float("MPC_JERK_AUTO", 3.0)  # default 8.0 m/s³
+        logger.info("-- Acceleration limits set for smooth flight")
+
         await self.upload_geofence()
 
     async def upload_geofence(self):
