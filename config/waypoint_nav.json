@@ -6,9 +6,9 @@
     "optimize_route": false,
     "timeout_s": 540,
     "waypoints": [
-        {"lat": 35.052000, "lon": -118.152000, "alt_m": 5.0, "label": "WP1 (NW)"},
-        {"lat": 35.052000, "lon": -118.149000, "alt_m": 5.0, "label": "WP2 (NE)"},
-        {"lat": 35.048000, "lon": -118.149000, "alt_m": 5.0, "label": "WP3 (SE)"},
-        {"lat": 35.048000, "lon": -118.152000, "alt_m": 5.0, "label": "WP4 (SW)"}
+        {"lat": 35.05200, "lon": -118.15100, "alt_m": 5.0, "label": "WP1 (NW)"},
+        {"lat": 35.05200, "lon": -118.14950, "alt_m": 5.0, "label": "WP2 (NE)"},
+        {"lat": 35.05070, "lon": -118.14950, "alt_m": 5.0, "label": "WP3 (SE)"},
+        {"lat": 35.05070, "lon": -118.15100, "alt_m": 5.0, "label": "WP4 (SW)"}
     ]
 }

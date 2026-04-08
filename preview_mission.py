@@ -124,6 +124,7 @@ async def main(args):
     logger.info("-- Clearing existing mission and geofence...")
     await drone.mission.clear_mission()
     await drone.geofence.clear_geofence()
+    await asyncio.sleep(1)  # give PX4 time to propagate the clear to QGC
     logger.info("-- Cleared")
 
     # Upload geofence
@@ -143,9 +144,12 @@ async def main(args):
 
     await drone.mission.set_return_to_launch_after_mission(config.get("rtl_after", True))
     await drone.mission.upload_mission(MissionPlan(items))
-    logger.info("-- Mission plan uploaded — visible in QGC")
+    logger.info("-- Mission plan uploaded")
     logger.info("")
-    logger.info("Geofence and waypoints are now visible in QGC.")
+    logger.info("Geofence and waypoints uploaded.")
+    logger.info("If QGC plan view hasn't updated: open Plan view and click")
+    logger.info("  'Download from vehicle' (cloud icon) to force a sync.")
+    logger.info("")
     logger.info("Run 'python main.py waypoint_nav' when ready to fly.")
     logger.info("Press Ctrl+C to disconnect.")
 
