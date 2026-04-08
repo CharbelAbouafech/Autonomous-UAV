@@ -71,6 +71,10 @@ class DroneController:
                 logger.info("-- Global position estimate OK")
                 break
 
+        # Allow autonomous modes without RC/joystick input (required for SITL)
+        await self.drone.param.set_param_int("COM_RC_IN_MODE", 4)
+        logger.info("-- COM_RC_IN_MODE set to 4 (no RC input required)")
+
         await self.upload_geofence()
 
     async def upload_geofence(self):
