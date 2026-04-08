@@ -120,6 +120,12 @@ async def main(args):
 
     await drone.param.set_param_int("COM_RC_IN_MODE", 4)
 
+    # Clear existing mission and geofence
+    logger.info("-- Clearing existing mission and geofence...")
+    await drone.mission.clear_mission()
+    await drone.geofence.clear_geofence()
+    logger.info("-- Cleared")
+
     # Upload geofence
     points = [Point(pt["lat"], pt["lon"]) for pt in geofence_polygon]
     polygon = Polygon(points, FenceType.INCLUSION)
