@@ -4,7 +4,7 @@ Waypoint Navigation Mission.
 
 Flies a sequence of GPS waypoints using PX4's built-in mission mode.
 PX4 handles position control, wind compensation, and waypoint acceptance
-natively — much more reliable than custom PID over GPS coordinates.
+natively — much more reliable than custom velocity control over GPS.
 
 Competition rules:
     - Up to 7 waypoints provided as UNORDERED lat/lon/alt on competition day
@@ -12,7 +12,7 @@ Competition rules:
     - Must complete in under 10 minutes
     - Scored by judge-provided GPS data logger
 
-Config example (config/waypoint_nav.json):
+Config (config/waypoint_nav.json):
     {
         "altitude_m": 5.0,
         "speed_m_s": 2.0,
@@ -21,8 +21,8 @@ Config example (config/waypoint_nav.json):
         "optimize_route": true,
         "timeout_s": 540,
         "waypoints": [
-            {"lat": 33.12345, "lon": -117.12345, "alt_m": 5.0},
-            {"lat": 33.12346, "lon": -117.12346, "alt_m": 5.0}
+            {"lat": 33.12345, "lon": -117.12345, "alt_m": 5.0, "label": "WP1"},
+            {"lat": 33.12346, "lon": -117.12346, "alt_m": 5.0, "label": "WP2"}
         ]
     }
 """
@@ -56,18 +56,13 @@ class WaypointNavMission(BaseMission):
 
     @staticmethod
     def _gps_distance_m(wp1, wp2):
-        """Approximate distance in meters between two GPS waypoints."""
         dlat = (wp1["lat"] - wp2["lat"]) * 111139
         dlon = (wp1["lon"] - wp2["lon"]) * 111139 * math.cos(math.radians(wp1["lat"]))
         dalt = wp1.get("alt_m", 0) - wp2.get("alt_m", 0)
         return math.sqrt(dlat ** 2 + dlon ** 2 + dalt ** 2)
 
     def _optimize_route(self, waypoints, start_pos=None):
-        """Find shortest route through all waypoints.
-
-        For <=7 waypoints (7! = 5040), brute-force all permutations.
-        Optionally accounts for drone's current position as the start.
-        """
+        """Brute-force shortest route through all waypoints (7! = 5040 max)."""
         n = len(waypoints)
         if n <= 1:
             return list(range(n)), 0.0
@@ -80,8 +75,7 @@ class WaypointNavMission(BaseMission):
                 dist += self._gps_distance_m(waypoints[order[i]], waypoints[order[i + 1]])
             return dist
 
-        best_order = None
-        best_dist = float("inf")
+        best_order, best_dist = None, float("inf")
         for perm in itertools.permutations(range(n)):
             d = route_distance(perm)
             if d < best_dist:
@@ -91,19 +85,18 @@ class WaypointNavMission(BaseMission):
         return list(best_order), best_dist
 
     def _build_mission_items(self, waypoints):
-        """Convert waypoint list to MAVSDK MissionItem list."""
-        items = []
         default_alt = self.config.get("altitude_m", 5.0)
         default_speed = self.config.get("speed_m_s", 2.0)
         acceptance = self.config.get("acceptance_radius_m", 1.0)
+        items = []
 
         for i, wp in enumerate(waypoints):
-            item = MissionItem(
+            items.append(MissionItem(
                 latitude_deg=wp["lat"],
                 longitude_deg=wp["lon"],
                 relative_altitude_m=wp.get("alt_m", default_alt),
                 speed_m_s=wp.get("speed_m_s", default_speed),
-                is_fly_through=wp.get("fly_through", True),
+                is_fly_through=wp.get("fly_through", False),
                 gimbal_pitch_deg=float("nan"),
                 gimbal_yaw_deg=float("nan"),
                 camera_action=MissionItem.CameraAction.NONE,
@@ -113,50 +106,53 @@ class WaypointNavMission(BaseMission):
                 yaw_deg=float("nan"),
                 camera_photo_distance_m=float("nan"),
                 vehicle_action=MissionItem.VehicleAction.NONE,
-            )
-            items.append(item)
-            label = wp.get("label", f"WP{i}")
+            ))
+            label = wp.get("label", f"WP{i + 1}")
             logger.info(f"  {label}: ({wp['lat']:.6f}, {wp['lon']:.6f}) alt={wp.get('alt_m', default_alt)}m")
 
         return items
 
-    def _build_ordered_mission_items(self):
-        """Optimize route and return mission items. Called before arming."""
+    async def pre_execute(self):
+        """Optimize route, upload mission to PX4, then arm.
+
+        Uploading before arming guarantees the plan is in PX4 before any
+        flight commands are issued — prevents 'no valid mission' errors.
+        """
         waypoints = list(self.config["waypoints"])
 
         if self.config.get("optimize_route", True):
-            order, total_dist = self._optimize_route(waypoints)
+            # Use current GPS position as route start for accurate optimization
+            start_pos = None
+            try:
+                lat, lon, alt = await self.controller.get_gps_position()
+                start_pos = {"lat": lat, "lon": lon, "alt_m": alt}
+            except Exception:
+                logger.warning("Could not get GPS for route optimization, ignoring start position")
+
+            order, total_dist = self._optimize_route(waypoints, start_pos)
             waypoints = [waypoints[i] for i in order]
-            logger.info(f"Route optimized: order={order}, estimated distance={total_dist:.0f}m")
+            logger.info(f"Route optimized: order={order}, est. distance={total_dist:.0f}m")
         else:
             logger.info("Route optimization disabled, using config order")
 
-        return self._build_mission_items(waypoints)
-
-    async def pre_execute(self):
-        """Upload mission first, then arm and take off. Ensures plan is in PX4 before flight."""
+        mission_items = self._build_mission_items(waypoints)
         rtl_after = self.config.get("rtl_after", True)
-        mission_items = self._build_ordered_mission_items()
         logger.info(f"Uploading {len(mission_items)} waypoints before arming...")
         await self.controller.upload_mission(mission_items, rtl_after=rtl_after)
 
-        # Now arm and take off via base class behavior
-        altitude = self.config.get("altitude_m", 3.0)
-        await self.controller.arm_and_takeoff(altitude)
+        logger.info("-- Arming")
+        await self.controller.drone.action.arm()
         self.controller.start_monitors()
 
     async def execute(self):
-        """Start the pre-uploaded mission and monitor until complete."""
+        """Start mission and monitor. PX4 handles takeoff and navigation simultaneously."""
         timeout = self.config.get("timeout_s", 540)
 
         await self.controller.start_mission()
+        logger.info(f"Mission started — monitoring progress (timeout: {timeout}s)...")
 
-        logger.info(f"Monitoring mission progress (timeout: {timeout}s)...")
         try:
-            await asyncio.wait_for(
-                self._monitor_until_done(),
-                timeout=timeout,
-            )
+            await asyncio.wait_for(self._monitor_until_done(), timeout=timeout)
         except asyncio.TimeoutError:
             logger.error(f"Mission timed out after {timeout}s!")
             self.result.data["timed_out"] = True
@@ -167,27 +163,25 @@ class WaypointNavMission(BaseMission):
         self.result.data["route_optimized"] = self.config.get("optimize_route", True)
 
     async def _monitor_until_done(self):
-        """Wait for mission complete, aborting early if safety check fails."""
         async for progress in self.controller.drone.mission.mission_progress():
             if progress.total == 0:
                 continue
             logger.info(f"  Mission progress: {progress.current}/{progress.total}")
             if not self.controller.is_safe_to_continue():
-                logger.warning("Safety check failed — stopping mission monitor")
+                logger.warning("Safety check failed — stopping mission")
                 return
             if progress.current == progress.total:
                 logger.info("-- Mission complete")
                 return
 
     async def post_execute(self):
-        """If rtl_after is set, PX4 handles RTL. Otherwise land manually."""
+        """RTL is handled by PX4 if rtl_after=true. Wait for landing then stop monitors."""
         if not self.config.get("rtl_after", True):
             await self.controller.land()
-        # Wait for the vehicle to be on the ground before stopping monitors
         logger.info("-- Waiting for drone to land...")
         async for in_air in self.controller.drone.telemetry.in_air():
             if not in_air:
-                logger.info("-- Drone is on the ground")
+                logger.info("-- Drone on the ground")
                 break
         await asyncio.sleep(2)
         self.controller.stop_monitors()

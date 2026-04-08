@@ -423,6 +423,17 @@ class DroneController:
         await self.drone.mission.start_mission()
         logger.info("-- Mission started")
 
+    async def arm_and_start_mission(self):
+        """Arm, start monitors, and start the pre-uploaded mission.
+
+        PX4 handles takeoff and navigation to waypoints simultaneously —
+        optimal for competition where time matters.
+        """
+        logger.info("-- Arming")
+        await self.drone.action.arm()
+        self.start_monitors()
+        await self.start_mission()
+
     async def upload_and_run_mission(self, mission_items, rtl_after=False):
         """Upload a list of MissionItems to PX4 and start the mission."""
         await self.upload_mission(mission_items, rtl_after=rtl_after)
