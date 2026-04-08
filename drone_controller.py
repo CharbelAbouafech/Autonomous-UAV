@@ -380,8 +380,8 @@ class DroneController:
         async for heading in self.drone.telemetry.heading():
             return heading.heading_deg
 
-    async def upload_and_run_mission(self, mission_items, rtl_after=False):
-        """Upload a list of MissionItems to PX4 and start the mission.
+    async def upload_mission(self, mission_items, rtl_after=False):
+        """Upload mission plan to PX4 without starting it.
 
         Args:
             mission_items: list of MissionItem objects
@@ -394,10 +394,17 @@ class DroneController:
 
         logger.info("Uploading mission...")
         await self.drone.mission.upload_mission(plan)
-        logger.info("Mission uploaded, starting...")
+        logger.info("-- Mission uploaded")
 
+    async def start_mission(self):
+        """Start a previously uploaded mission."""
         await self.drone.mission.start_mission()
-        logger.info("Mission started")
+        logger.info("-- Mission started")
+
+    async def upload_and_run_mission(self, mission_items, rtl_after=False):
+        """Upload a list of MissionItems to PX4 and start the mission."""
+        await self.upload_mission(mission_items, rtl_after=rtl_after)
+        await self.start_mission()
 
     async def wait_for_mission_complete(self):
         """Block until PX4 mission is finished. Logs progress updates."""

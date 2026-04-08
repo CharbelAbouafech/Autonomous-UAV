@@ -120,37 +120,36 @@ class WaypointNavMission(BaseMission):
 
         return items
 
-    async def pre_execute(self):
-        """Arm the drone, then start monitors. PX4 mission mode handles takeoff."""
-        await self.controller.drone.action.arm()
-        self.controller.start_monitors()
-
-    async def execute(self):
-        """Optimize route, upload waypoints to PX4, and fly the mission."""
+    def _build_ordered_mission_items(self):
+        """Optimize route and return mission items. Called before arming."""
         waypoints = list(self.config["waypoints"])
-        timeout = self.config.get("timeout_s", 540)  # 9 min default (leave margin for 10 min limit)
 
-        # Optimize route order if enabled
         if self.config.get("optimize_route", True):
-            # Get current drone position as route start
-            start_pos = None
-            try:
-                lat, lon, alt = await self.controller.get_gps_position()
-                start_pos = {"lat": lat, "lon": lon, "alt_m": alt}
-            except Exception:
-                logger.warning("Could not get GPS position for route optimization")
-
-            order, total_dist = self._optimize_route(waypoints, start_pos)
+            order, total_dist = self._optimize_route(waypoints)
             waypoints = [waypoints[i] for i in order]
             logger.info(f"Route optimized: order={order}, estimated distance={total_dist:.0f}m")
         else:
             logger.info("Route optimization disabled, using config order")
 
-        mission_items = self._build_mission_items(waypoints)
-        logger.info(f"Uploading {len(mission_items)} waypoints...")
+        return self._build_mission_items(waypoints)
 
+    async def pre_execute(self):
+        """Upload mission first, then arm and take off. Ensures plan is in PX4 before flight."""
         rtl_after = self.config.get("rtl_after", True)
-        await self.controller.upload_and_run_mission(mission_items, rtl_after=rtl_after)
+        mission_items = self._build_ordered_mission_items()
+        logger.info(f"Uploading {len(mission_items)} waypoints before arming...")
+        await self.controller.upload_mission(mission_items, rtl_after=rtl_after)
+
+        # Now arm and take off via base class behavior
+        altitude = self.config.get("altitude_m", 3.0)
+        await self.controller.arm_and_takeoff(altitude)
+        self.controller.start_monitors()
+
+    async def execute(self):
+        """Start the pre-uploaded mission and monitor until complete."""
+        timeout = self.config.get("timeout_s", 540)
+
+        await self.controller.start_mission()
 
         logger.info(f"Monitoring mission progress (timeout: {timeout}s)...")
         try:
@@ -164,7 +163,7 @@ class WaypointNavMission(BaseMission):
             self.controller._rtl_intentional = True
             await self.controller.drone.action.return_to_launch()
 
-        self.result.data["waypoints_count"] = len(mission_items)
+        self.result.data["waypoints_count"] = len(self.config["waypoints"])
         self.result.data["route_optimized"] = self.config.get("optimize_route", True)
 
     async def _monitor_until_done(self):
