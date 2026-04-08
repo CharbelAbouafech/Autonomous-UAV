@@ -3,15 +3,12 @@
     "speed_m_s": 2.0,
     "acceptance_radius_m": 1.0,
     "rtl_after": true,
-    "optimize_route": true,
+    "optimize_route": false,
     "timeout_s": 540,
     "waypoints": [
-        {"lat": 35.052000, "lon": -118.150500, "alt_m": 5.0, "label": "WP1"},
-        {"lat": 35.051000, "lon": -118.151500, "alt_m": 5.0, "label": "WP2"},
-        {"lat": 35.052500, "lon": -118.149500, "alt_m": 5.0, "label": "WP3"},
-        {"lat": 35.049500, "lon": -118.152000, "alt_m": 5.0, "label": "WP4"},
-        {"lat": 35.048000, "lon": -118.152000, "alt_m": 5.0, "label": "WP5"},
-        {"lat": 35.047500, "lon": -118.151500, "alt_m": 5.0, "label": "WP6"},
-        {"lat": 35.048500, "lon": -118.151000, "alt_m": 5.0, "label": "WP7"}
+        {"lat": 35.052000, "lon": -118.152000, "alt_m": 5.0, "label": "WP1 (NW)"},
+        {"lat": 35.052000, "lon": -118.149000, "alt_m": 5.0, "label": "WP2 (NE)"},
+        {"lat": 35.048000, "lon": -118.149000, "alt_m": 5.0, "label": "WP3 (SE)"},
+        {"lat": 35.048000, "lon": -118.152000, "alt_m": 5.0, "label": "WP4 (SW)"}
     ]
 }
