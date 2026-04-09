@@ -37,10 +37,8 @@ Search a defined area for ground targets using a lawnmower pattern and YOLO dete
 SSH into the Pi and run:
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
 
-# Edit config with real GPS coordinates (provided on competition day)
+# Edit config with real GPS coordinates
 nano config/waypoint_nav.json
 
 # Run a mission
