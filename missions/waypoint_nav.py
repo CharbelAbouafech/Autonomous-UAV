@@ -112,6 +112,53 @@ class WaypointNavMission(BaseMission):
 
         return items
 
+    async def _handle_inner_breach(self):
+        """Inner fence breach handler: return to last completed waypoint, skip the bad one."""
+        bad_index = self._current_progress
+        logger.warning(f"Inner fence breach — returning to last waypoint, skipping WP index {bad_index}")
+
+        try:
+            await self.controller.drone.action.hold()
+            await asyncio.sleep(0.5)
+        except Exception:
+            pass
+
+        # Return to last completed waypoint (or home if none completed yet)
+        if self._last_wp_position:
+            lat, lon, alt_amsl = self._last_wp_position
+            logger.info(f"Returning to last waypoint: ({lat:.5f}, {lon:.5f})")
+            await self.controller.drone.action.goto_location(lat, lon, alt_amsl, float("nan"))
+
+            # Wait until back inside inner fence
+            for _ in range(30):
+                await asyncio.sleep(1)
+                try:
+                    cur_lat, cur_lon, _ = await self.controller.get_gps_position()
+                    inner = self.controller._inner_geofence_polygon
+                    if inner and self.controller._point_in_polygon(cur_lat, cur_lon, inner):
+                        logger.info("Back inside inner fence")
+                        break
+                except Exception:
+                    pass
+        else:
+            logger.warning("No completed waypoint to return to — holding")
+            await asyncio.sleep(5)
+
+        # Skip the bad waypoint and resume mission from next
+        skip_to = bad_index + 1
+        if skip_to < len(self._mission_items):
+            logger.info(f"Resuming mission from WP index {skip_to}")
+            await asyncio.sleep(0.5)
+            await self.controller.drone.mission.set_current_mission_item(skip_to)
+            await asyncio.sleep(0.5)
+            await self.controller.start_mission()
+            self.controller._inner_breach_recovering = False  # allow future breach detection
+        else:
+            logger.info("Bad WP was the last — landing now")
+            self._breach_triggered_land = True  # signals _monitor_until_done to exit
+            await self.controller.land()
+            # leave _inner_breach_recovering = True to prevent re-trigger during landing
+
     async def pre_execute(self):
         """Optimize route, upload mission to PX4, then arm.
 
@@ -137,8 +184,15 @@ class WaypointNavMission(BaseMission):
 
         mission_items = self._build_mission_items(waypoints)
         rtl_after = self.config.get("rtl_after", True)
+        self._mission_items = mission_items
+        self._current_progress = 0
+        self._last_wp_position = None  # (lat, lon, alt_amsl) of last completed waypoint
+        self._breach_triggered_land = False
+        self.controller._inner_breach_callback = self._handle_inner_breach
+
         logger.info(f"Uploading {len(mission_items)} waypoints before arming...")
         await self.controller.upload_mission(mission_items, rtl_after=rtl_after)
+        await asyncio.sleep(2)  # let QGC sync the plan before arming
 
         logger.info("-- Arming")
         await self.controller.drone.action.arm()
@@ -167,6 +221,23 @@ class WaypointNavMission(BaseMission):
             if progress.total == 0:
                 continue
             logger.info(f"  Mission progress: {progress.current}/{progress.total}")
+
+            # Track current target WP index for breach handler
+            self._current_progress = progress.current
+
+            # Record position when a waypoint is completed
+            if progress.current > 0 and progress.current > getattr(self, "_last_recorded_progress", 0):
+                self._last_recorded_progress = progress.current
+                try:
+                    async for pos in self.controller.drone.telemetry.position():
+                        self._last_wp_position = (pos.latitude_deg, pos.longitude_deg, pos.absolute_altitude_m)
+                        break
+                except Exception:
+                    pass
+
+            if self._breach_triggered_land:
+                logger.info("Landing triggered by inner fence breach — exiting monitor")
+                return
             if not self.controller.is_safe_to_continue():
                 logger.warning("Safety check failed — stopping mission")
                 return

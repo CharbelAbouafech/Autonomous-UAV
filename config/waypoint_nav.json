@@ -1,14 +1,17 @@
 {
     "altitude_m": 5.0,
-    "speed_m_s": 2.0,
+    "speed_m_s": 4.0,
     "acceptance_radius_m": 1.0,
-    "rtl_after": true,
-    "optimize_route": false,
+    "rtl_after": false,
+    "optimize_route": true,
     "timeout_s": 540,
     "waypoints": [
-        {"lat": 35.05200, "lon": -118.15100, "alt_m": 5.0, "label": "WP1 (NW)"},
-        {"lat": 35.05200, "lon": -118.14950, "alt_m": 5.0, "label": "WP2 (NE)"},
-        {"lat": 35.05070, "lon": -118.14950, "alt_m": 5.0, "label": "WP3 (SE)"},
-        {"lat": 35.05070, "lon": -118.15100, "alt_m": 5.0, "label": "WP4 (SW)"}
+        {"lat": 35.051300, "lon": -118.151300, "alt_m": 5.0, "label": "WP1 NW"},
+        {"lat": 35.051300, "lon": -118.149700, "alt_m": 5.0, "label": "WP2 NE"},
+        {"lat": 35.049200, "lon": -118.149700, "alt_m": 5.0, "label": "WP3 SE"},
+        {"lat": 35.049200, "lon": -118.151300, "alt_m": 5.0, "label": "WP4 SW"},
+        {"lat": 35.052500, "lon": -118.150500, "alt_m": 5.0, "label": "WP5 OUTSIDE INNER"},
+        {"lat": 35.051300, "lon": -118.150500, "alt_m": 5.0, "label": "WP6 N"},
+        {"lat": 35.049200, "lon": -118.150500, "alt_m": 5.0, "label": "WP7 S"}
     ]
 }

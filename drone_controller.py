@@ -48,11 +48,22 @@ class DroneController:
         self._outside_geofence = False
         self._monitor_tasks = []
 
-        # Load geofence polygon
+        # Load geofence polygons (supports inner/outer or legacy single-polygon format)
         geofence_path = Path(__file__).resolve().parent / "config" / "geofence.json"
         with open(geofence_path, "r") as f:
-            self._geofence_polygon = json.load(f)["geofence"]
-        logger.info(f"Geofence loaded: {len(self._geofence_polygon)} vertices")
+            fence_data = json.load(f)
+        if "outer" in fence_data:
+            self._outer_geofence_polygon = fence_data["outer"]
+            self._inner_geofence_polygon = fence_data.get("inner")
+        else:
+            self._outer_geofence_polygon = fence_data["geofence"]
+            self._inner_geofence_polygon = None
+        self._geofence_polygon = self._outer_geofence_polygon  # backward compat
+        self._last_safe_position = None  # (lat, lon, alt_amsl_m) — updated when inside inner fence
+        self._inner_breach_recovering = False
+        self._inner_breach_callback = None  # optional async callable set by mission for custom breach handling
+        inner_info = f", inner: {len(self._inner_geofence_polygon)} vertices" if self._inner_geofence_polygon else ""
+        logger.info(f"Geofence loaded: outer {len(self._outer_geofence_polygon)} vertices{inner_info}")
 
     async def connect(self, system_address="udpin://0.0.0.0:14540"):
         """Connect to drone"""
@@ -80,16 +91,21 @@ class DroneController:
         await self.drone.param.set_param_float("MPC_JERK_AUTO", 3.0)  # default 8.0 m/s³
         logger.info("-- Acceleration limits set for smooth flight")
 
+        # Ensure home is always set at ground level (launch point), not mid-air
+        await self.drone.param.set_param_int("COM_HOME_IN_AIR", 0)
+
+        # Disable PX4's built-in geofence action — our Python monitor handles breach response
+        await self.drone.param.set_param_int("GF_ACTION", 0)
+
         await self.upload_geofence()
+        await asyncio.sleep(1)  # let QGC receive the geofence before continuing
 
     async def upload_geofence(self):
-        """Upload geofence polygon to PX4 so QGC displays it on the map."""
-        points = [
-            Point(pt["lat"], pt["lon"]) for pt in self._geofence_polygon
-        ]
+        """Upload outer geofence polygon to PX4 so QGC displays it on the map."""
+        points = [Point(pt["lat"], pt["lon"]) for pt in self._outer_geofence_polygon]
         polygon = Polygon(points, FenceType.INCLUSION)
         await self.drone.geofence.upload_geofence(GeofenceData([polygon], []))
-        logger.info("-- Geofence uploaded to PX4 (visible in QGC)")
+        logger.info("-- Outer geofence uploaded to PX4 (visible in QGC)")
 
     async def pre_flight_check(self):
         """Verify drone is safe to fly. Returns True if all checks pass."""
@@ -219,13 +235,33 @@ class DroneController:
             min_dist = min(min_dist, dist)
         return min_dist
 
-    async def _monitor_geofence(self, breach_buffer_m=2.0):
-        """Background task: land immediately if drone leaves geofence polygon.
+    async def _return_to_last_position(self):
+        """Stop current motion and fly back to last recorded safe position inside the inner fence."""
+        if self._last_safe_position is None:
+            logger.warning("No last safe position recorded — RTL instead")
+            self._rtl_intentional = True
+            await self.drone.action.return_to_launch()
+            return
+        lat, lon, alt_amsl = self._last_safe_position
+        logger.info(f"-- Returning to last safe position: ({lat:.6f}, {lon:.6f}, {alt_amsl:.1f}m AMSL)")
+        try:
+            await self.drone.offboard.stop()
+        except Exception:
+            pass
+        # Hold first — stops in-progress motion before issuing new position target
+        try:
+            await self.drone.action.hold()
+            await asyncio.sleep(0.5)
+        except Exception:
+            pass
+        await self.drone.action.goto_location(lat, lon, alt_amsl, float("nan"))
 
-        Args:
-            breach_buffer_m: Only trigger if drone is more than this many meters
-                             outside the polygon. Prevents false positives from
-                             GPS jitter near the boundary.
+    async def _monitor_geofence(self, breach_buffer_m=2.0):
+        """Background task monitoring inner and outer geofences.
+
+        Inner breach  → fly back to last recorded safe position inside inner fence.
+        Outer breach  → RTL immediately.
+        breach_buffer_m: GPS jitter tolerance at boundaries.
         """
         try:
             async for pos in self.drone.telemetry.position():
@@ -233,22 +269,48 @@ class DroneController:
                     break
                 lat = pos.latitude_deg
                 lon = pos.longitude_deg
-                if not self._point_in_polygon(lat, lon, self._geofence_polygon):
-                    dist = self._distance_to_polygon_m(lat, lon, self._geofence_polygon)
+                alt_amsl = pos.absolute_altitude_m
+
+                # --- Outer fence: RTL on breach ---
+                if not self._point_in_polygon(lat, lon, self._outer_geofence_polygon):
+                    dist = self._distance_to_polygon_m(lat, lon, self._outer_geofence_polygon)
                     if dist < breach_buffer_m:
-                        continue  # GPS jitter near boundary, not a real breach
+                        continue
                     logger.critical(
-                        f"GEOFENCE BREACH at ({lat:.6f}, {lon:.6f}) "
-                        f"{dist:.1f}m outside — landing immediately!"
+                        f"OUTER GEOFENCE BREACH at ({lat:.6f}, {lon:.6f}) "
+                        f"{dist:.1f}m outside — RTL!"
                     )
                     self._outside_geofence = True
-                    self._landing_intentional = True
+                    self._rtl_intentional = True
                     try:
                         await self.drone.offboard.stop()
                     except Exception:
                         pass
-                    await self.drone.action.land()
+                    await self.drone.action.return_to_launch()
                     break
+
+                # --- Inner fence: return to last safe position on breach ---
+                if self._inner_geofence_polygon is not None:
+                    if self._point_in_polygon(lat, lon, self._inner_geofence_polygon):
+                        self._last_safe_position = (lat, lon, alt_amsl)
+                        self._inner_breach_recovering = False
+                    else:
+                        dist = self._distance_to_polygon_m(lat, lon, self._inner_geofence_polygon)
+                        if dist < breach_buffer_m:
+                            continue
+                        if not self._inner_breach_recovering:
+                            logger.warning(
+                                f"INNER GEOFENCE BREACH at ({lat:.6f}, {lon:.6f}) "
+                                f"{dist:.1f}m outside inner fence"
+                            )
+                            self._inner_breach_recovering = True
+                            try:
+                                if self._inner_breach_callback:
+                                    await self._inner_breach_callback()
+                                else:
+                                    await self._return_to_last_position()
+                            except Exception as e:
+                                logger.error(f"Inner fence recovery failed: {e}")
         except asyncio.CancelledError:
             pass
 
@@ -298,6 +360,10 @@ class DroneController:
 
         logger.info("-- Arming")
         await self.drone.action.arm()
+
+        async for home in self.drone.telemetry.home():
+            logger.info(f"-- Home position set: ({home.latitude_deg:.6f}, {home.longitude_deg:.6f}, {home.absolute_altitude_m:.1f}m AMSL)")
+            break
 
         logger.info(f"-- Taking off to {altitude}m")
         await self.drone.action.takeoff()
@@ -403,12 +469,15 @@ class DroneController:
             return heading.heading_deg
 
     async def upload_mission(self, mission_items, rtl_after=False):
-        """Upload mission plan to PX4 without starting it.
+        """Clear any existing mission, then upload new plan to PX4.
 
         Args:
             mission_items: list of MissionItem objects
             rtl_after: return to launch after final waypoint
         """
+        logger.info("Clearing existing mission...")
+        await self.drone.mission.clear_mission()
+
         plan = MissionPlan(mission_items)
         await self.drone.mission.set_return_to_launch_after_mission(rtl_after)
         if rtl_after:
