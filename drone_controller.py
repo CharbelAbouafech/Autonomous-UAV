@@ -13,6 +13,7 @@ from mavsdk.mission import MissionItem, MissionPlan
 from mavsdk.telemetry import FlightMode
 
 from controllers.pid_controller import PIDController
+from lidar import TFMini
 
 # Enable INFO level logging
 logging.basicConfig(level=logging.INFO)
@@ -39,6 +40,15 @@ class DroneController:
         self.max_forward_speed = 0.5  # m/s
         self.max_right_speed = 0.5  # m/s
         self.max_altitude_speed = 0.3  # m/s (slow descent for safety)
+
+        # LiDAR
+        self._lidar_altitude_mm = None
+        try:
+            self._lidar = TFMini()
+            logger.info("LiDAR: TF Mini initialized on /dev/ttyAMA3")
+        except Exception as e:
+            self._lidar = None
+            logger.warning(f"LiDAR: not available ({e}) — altitude monitor disabled")
 
         # Safety state
         self._failsafe_triggered = False
@@ -337,12 +347,28 @@ class DroneController:
         except asyncio.CancelledError:
             pass
 
+    async def _monitor_lidar(self):
+        """Background task: read TF Mini LiDAR and log AGL height while airborne."""
+        if self._lidar is None:
+            return
+        try:
+            loop = asyncio.get_event_loop()
+            while True:
+                dist_mm, strength = await loop.run_in_executor(None, self._lidar.read)
+                if dist_mm is not None:
+                    self._lidar_altitude_mm = dist_mm
+                    logger.info(f"LiDAR: {dist_mm} mm AGL (strength: {strength})")
+                await asyncio.sleep(0)  # yield to event loop between reads
+        except asyncio.CancelledError:
+            pass
+
     def start_monitors(self):
-        """Start background battery, flight mode, and geofence monitoring."""
+        """Start background battery, flight mode, geofence, and LiDAR monitoring."""
         self._monitor_tasks = [
             asyncio.ensure_future(self._monitor_flight_mode()),
             asyncio.ensure_future(self._monitor_battery()),
             asyncio.ensure_future(self._monitor_geofence()),
+            asyncio.ensure_future(self._monitor_lidar()),
         ]
         logger.info("-- Safety monitors started")
 
