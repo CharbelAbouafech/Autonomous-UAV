@@ -25,9 +25,9 @@ from drone_controller import DroneController
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
-# Inner fence: lat 35.049–35.0515, lon -118.1515 to -118.1495
-SAFE_POS       = (35.0503, -118.1505, 838.0)   # home — center of inner fence
-OUTSIDE_INNER  = (35.0530, -118.1505, 838.0)   # ~170m north of inner fence, inside outer
+# Inner fence: matches outer fence shape, ~10 m inward from each outer vertex
+SAFE_POS       = (35.0503, -118.1505, 838.0)   # home — center of inner/outer fence area
+OUTSIDE_INNER  = (35.0535, -118.1505, 838.0)   # just north of inner fence (~10 m gap), inside outer
 OUTSIDE_OUTER  = (35.0550, -118.1505, 838.0)   # north of outer fence (35.0532)
 
 

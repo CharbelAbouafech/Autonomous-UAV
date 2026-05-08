@@ -10,9 +10,13 @@
         {"lat": 35.053200, "lon": -118.148542, "alt_m": 831.09, "label": "Outer-8 NE"}
     ],
     "inner": [
-        {"lat": 35.051500, "lon": -118.151500, "label": "Inner-NW"},
-        {"lat": 35.051500, "lon": -118.149500, "label": "Inner-NE"},
-        {"lat": 35.049000, "lon": -118.149500, "label": "Inner-SE"},
-        {"lat": 35.049000, "lon": -118.151500, "label": "Inner-SW"}
+        {"lat": 35.053133, "lon": -118.151880, "label": "Inner-1 NE-high"},
+        {"lat": 35.050227, "lon": -118.151882, "label": "Inner-2"},
+        {"lat": 35.050262, "lon": -118.153375, "label": "Inner-3 W"},
+        {"lat": 35.047180, "lon": -118.153479, "label": "Inner-4 SW"},
+        {"lat": 35.047181, "lon": -118.150550, "label": "Inner-5 S"},
+        {"lat": 35.049093, "lon": -118.150593, "label": "Inner-6"},
+        {"lat": 35.049046, "lon": -118.148684, "label": "Inner-7 SE"},
+        {"lat": 35.053124, "lon": -118.148602, "label": "Inner-8 NE"}
     ]
 }
