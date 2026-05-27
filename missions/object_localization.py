@@ -44,6 +44,9 @@ import time
 from pathlib import Path
 
 from missions.base_mission import BaseMission
+from camera.object_manager import ObjectManager
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -223,14 +226,18 @@ class ObjectLocalizationMission(BaseMission):
         await self.controller.hover()
         logger.info("Search pattern complete")
 
-    async def _run_detection(self, detections, stop_event):
+
+    async def _run_detection(self, stop_event):
         """Capture camera frames, run YOLO, log detections with GPS position.
 
         Runs concurrently with the flight task. Appends to the shared
         detections list when objects are found.
         """
         from ultralytics import YOLO
-        from camera.tracking import HybridTracker, cam
+        from camera.tracking import mult_detect_targets   
+        
+                                 
+
 
         model_path = self.config.get("yolo_model_path", "camera/yolo26n.pt")
         confidence = self.config.get("yolo_confidence", 0.3)
@@ -241,7 +248,6 @@ class ObjectLocalizationMission(BaseMission):
         full_model_path = project_root / model_path
 
         model = YOLO(str(full_model_path))
-        ht = HybridTracker(detect_every=detect_every, conf=confidence, classes=classes)
 
         # Camera init — use Picamera2 on Pi, fall back to OpenCV webcam
         picam2 = None
@@ -249,10 +255,11 @@ class ObjectLocalizationMission(BaseMission):
         try:
             from picamera2 import Picamera2
             picam2 = Picamera2()
-            config = picam2.create_preview_configuration(
-                main={"size": (1280, 720), "format": "RGB888"}
+            cam_config = picam2.create_preview_configuration(
+                main={"size": (640, 480), "format": "RGB888"},
+                controls={"FrameRate": 30}
             )
-            picam2.configure(config)
+            picam2.configure(cam_config)
             picam2.start()
             await asyncio.sleep(2)
             logger.info("Camera: Picamera2 initialized")
@@ -273,26 +280,16 @@ class ObjectLocalizationMission(BaseMission):
                         continue
                 else:
                     break
+                
+                if frame_count % detect_every == 0:
+                
+                    targets, _ = mult_detect_targets(frame, model, classes, conf=confidence)
 
-                bbox, err_px, frame = cam(frame, model, ht)
+                    if targets:
+                        lat, lon, alt = await self.controller.get_gps_position()
+                        self.om.update(targets, (lat, lon), alt)
+                
                 frame_count += 1
-
-                if bbox is not None:
-                    lat, lon, alt = await self.controller.get_gps_position()
-                    x, y, w, h = bbox
-                    detection = {
-                        "timestamp": time.time(),
-                        "lat": lat,
-                        "lon": lon,
-                        "alt_m": alt,
-                        "bbox": [float(x), float(y), float(w), float(h)],
-                        "frame": frame_count,
-                    }
-                    detections.append(detection)
-                    logger.info(
-                        f"  DETECTED target at ({lat:.6f}, {lon:.6f}) "
-                        f"alt={alt:.1f}m [frame {frame_count}]"
-                    )
 
                 await asyncio.sleep(0)
 
@@ -303,40 +300,13 @@ class ObjectLocalizationMission(BaseMission):
                 cap.release()
             logger.info(f"Detection stopped after {frame_count} frames")
 
-    @staticmethod
-    def _deduplicate_detections(detections, min_distance_m=2.0):
-        """Merge detections within min_distance_m of each other.
-
-        Uses greedy clustering: each new detection is either merged into
-        an existing cluster or starts a new one.
-        """
-        if not detections:
-            return []
-
-        clusters = []
-        for det in detections:
-            merged = False
-            for cluster in clusters:
-                dlat = (det["lat"] - cluster["lat"]) * 111139
-                dlon = (det["lon"] - cluster["lon"]) * 111139 * math.cos(
-                    math.radians(det["lat"])
-                )
-                dist = math.sqrt(dlat ** 2 + dlon ** 2)
-                if dist < min_distance_m:
-                    merged = True
-                    break
-            if not merged:
-                clusters.append({
-                    "lat": det["lat"],
-                    "lon": det["lon"],
-                    "alt_m": det["alt_m"],
-                    "first_seen": det["timestamp"],
-                })
-        return clusters
+   
 
     async def pre_execute(self):
         """Arm, takeoff, then enter offboard mode for velocity control."""
         altitude = self.config.get("altitude_m", 8.0)
+
+        self.om = ObjectManager() 
 
         # Enforce minimum altitude
         min_alt = self.config.get("min_altitude_m", MIN_ALTITUDE_M)
@@ -354,15 +324,15 @@ class ObjectLocalizationMission(BaseMission):
     async def execute(self):
         """Fly search pattern while running YOLO detection concurrently."""
         timeout = self.config.get("timeout_s", 540)  # 9 min default
-        detections = []
         stop_event = asyncio.Event()
+
 
         # Fly to the start of the search area if GPS corners are defined
         await self._fly_to_search_start()
 
         # Launch detection as a background task
         detection_task = asyncio.create_task(
-            self._run_detection(detections, stop_event)
+            self._run_detection(stop_event)
         )
 
         # Fly the search pattern with timeout
@@ -384,13 +354,12 @@ class ObjectLocalizationMission(BaseMission):
             logger.warning("Detection task timed out during shutdown")
 
         # Deduplicate nearby detections
-        unique = self._deduplicate_detections(detections, min_distance_m=2.0)
+        unique = self.om.get_confirmed_objects()
 
-        logger.info(f"\nDetections: {len(detections)} raw, {len(unique)} unique targets")
+        logger.info(f"\nUnique targets found:  {len(unique)}")
         for i, obj in enumerate(unique):
-            logger.info(f"  Target {i + 1}: ({obj['lat']:.6f}, {obj['lon']:.6f})")
+            logger.info(f"  Target {i + 1}: ({obj['lat']:.6f}, {obj['lon']:.6f}) class={obj['class']}")
 
-        self.result.data["raw_detections"] = len(detections)
         self.result.data["unique_targets"] = len(unique)
         self.result.data["targets"] = unique
 
